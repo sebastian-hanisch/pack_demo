@@ -1,8 +1,8 @@
 # 3D-Packungsoptimierung (Container-/Palettenstauung) – Streamlit-Demo
 
 Interaktive Demo zur dreidimensionalen Beladung eines Containers oder einer Palette.
-Zwei selbst implementierte Heuristiken werden direkt verglichen. Bewusst schlanker
-gehalten als die Tourenplanung-Demo (zwei Heuristiken statt fünf, kein externer Solver),
+Drei selbst implementierte Heuristiken werden direkt verglichen. Bewusst schlanker
+gehalten als die Tourenplanung-Demo (drei Heuristiken statt fünf, kein externer Solver),
 aber mit denselben Komfortfunktionen für gutes Verständnis. Teil des Demo-Portfolios für
 die Website "Sebastian Hanisch – Operations Research und Machine Learning".
 
@@ -49,8 +49,10 @@ aufgeteilt wurde):
   wie viele zusätzliche Container (volumenbasiert) nötig wären und was das kostet
   (einstellbarer €/Container-Regler) - macht den Heuristik-Unterschied konkret.
 - **PDF-Packplan:** Download-Button pro Tab, Zusammenfassung + Positionsliste je Box.
-- **Drei Ein-Klick-Beispielszenarien:** Gleichmäßige Kartons, Gemischte Ladung, Viele
-  kleine Pakete.
+- **Vier Ein-Klick-Beispielszenarien:** Gleichmäßige Kartons, Gemischte Ladung, Viele
+  kleine Pakete, sowie "Enges Puzzle" - systematisch gesucht, um zu zeigen, wo Beam
+  Search deutlich (nicht nur knapp) vor beiden anderen Heuristiken liegt (siehe
+  eigener Abschnitt unten).
 - **Permalink:** Adresszeile spiegelt die aktuelle Konfiguration; robust gegen Werte
   außerhalb der Slider-Grenzen (`SETTING_SPECS`-Muster von Anfang an übernommen, siehe
   unten).
@@ -130,6 +132,32 @@ Breite = minimal besser, aber im Worst Case langsamer). Wird automatisch bei jed
 UI-Interaktion neu berechnet (nicht Button-gesteuert wie OR-Tools in der
 Tourenplanung-Demo), Worst-Case-Zeit bleibt mit ~1s im vertretbaren Rahmen - abgesichert
 durch `test_beam_search_worst_case_completes_within_budget`.
+
+### Ein Szenario, in dem Beam Search deutlich vorne liegt
+
+Auf Wunsch systematisch gesucht: über 4 Boxanzahlen (25/35/45), 4 Größenbereiche
+(8-70 cm) und je bis zu 15 Seeds (~180 Konfigurationen), gefiltert auf "eng, aber nicht
+hoffnungslos" (Gesamtvolumen der Boxen 90-250% des Containervolumens). Bestes Ergebnis:
+25 Boxen, 15-55 cm Kantenlänge, Seed 3, im 120×80×100-cm-Standardcontainer -
+
+| Methode | Raumnutzung |
+|---|---|
+| Schichten-basiert | 42,0 % |
+| Extreme-Point | 68,8 % |
+| **Beam Search** | **82,7 %** |
+
++13,9 Prozentpunkte gegenüber Extreme-Point, +40,7 gegenüber der Baseline - deutlich
+über dem Durchschnitt von +0,9 Prozentpunkten aus dem allgemeinen Benchmark oben. Als
+vierter Preset-Button ("📡 Enges Puzzle") in die App aufgenommen.
+
+**Eine interessante Randnotiz beim Suchen:** Größere Beam-Parameter (`beam_width=8/10`)
+lieferten für DIESES Szenario nicht durchgehend bessere Ergebnisse als der Standard
+(`beam_width=6`) - teils sogar leicht schlechter (79,0% statt 82,7%), erst
+`beam_width=12` übertraf den Standard minimal (83,3%). Deshalb wurde für diesen Preset
+bewusst NICHT an den Beam-Parametern gedreht - der Standardwert liefert hier bereits
+das beste Ergebnis, ohne zusätzliche Rechenzeit. Ein weiteres Beispiel (nach der
+Beam-Search-Erfahrung in der Tourenplanung-Demo) dafür, dass "mehr Suchbreite" bei
+Beam Search nicht zuverlässig zu besseren Ergebnissen führt.
 
 ## 1. Lokal ausführen
 

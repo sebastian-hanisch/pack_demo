@@ -34,7 +34,7 @@ def layer_based_packing(boxes, container_dim):
     """Schichten-Heuristik: Boxen werden nach Höhe absteigend sortiert und in
     Reihen/Schichten angeordnet - neue Reihe, wenn die Breite nicht mehr
     reicht, neue Schicht, wenn die Tiefe nicht mehr reicht. Keine Rotation,
-    keine Lückenfüllung - bewusst die einfachere der beiden Heuristiken."""
+    keine Lückenfüllung - bewusst die einfachste der drei Heuristiken."""
     CL, CW, CH = container_dim
     order = sorted(range(len(boxes)), key=lambda i: -boxes[i][2])
 

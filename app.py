@@ -2,7 +2,7 @@
 3D-Packungsoptimierung (Container-/Palettenstauung) – interaktive Demo
 Sebastian Hanisch - Operations Research und Machine Learning
 
-Bewusst schlanker gehalten als die Tourenplanung-Demo (zwei Heuristiken statt
+Bewusst schlanker gehalten als die Tourenplanung-Demo (drei Heuristiken statt
 fünf, kein externer Solver), aber mit denselben Komfortfunktionen für gutes
 Verständnis: Erklärung, Beispielszenarien, Animation, PDF-Export, Permalink,
 Feedback-Mechanismus.
@@ -26,19 +26,20 @@ st.title("📦 3D-Packungsoptimierung (Container-/Palettenstauung)")
 st.markdown(
     """
 Interaktive Demo zur dreidimensionalen Beladung eines Containers oder einer Palette.
-Zwei selbst implementierte Heuristiken – eine **schichtenweise** Vorgehensweise (wie man
-intuitiv von Hand packen würde) und eine fortgeschrittene **Extreme-Point**-Methode
-(füllt Lücken zwischen unterschiedlich großen Boxen gezielt) – werden direkt verglichen.
+Drei selbst implementierte Heuristiken – eine **schichtenweise** Vorgehensweise (wie man
+intuitiv von Hand packen würde, ohne Rotation), eine fortgeschrittene **Extreme-Point**-
+Methode (füllt Lücken zwischen unterschiedlich großen Boxen gezielt) und **Beam Search**
+(verfolgt mehrere Teil-Packungen parallel) – werden direkt verglichen.
 """
 )
 
 st.caption("🎯 Schnellstart – ein Beispielszenario laden:")
-preset_col1, preset_col2, preset_col3 = st.columns(3)
+preset_col1, preset_col2, preset_col3, preset_col4 = st.columns(4)
 with preset_col1:
     st.button(
         "📐 Gleichmäßige Kartons", use_container_width=True,
         on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 10),
-        help="20 ähnlich große Kartons – beide Heuristiken sollten hier gut abschneiden.",
+        help="20 ähnlich große Kartons – alle drei Heuristiken sollten hier gut abschneiden.",
     )
 with preset_col2:
     st.button(
@@ -51,6 +52,12 @@ with preset_col3:
         "🧩 Viele kleine Pakete", use_container_width=True,
         on_click=apply_preset, args=(45, 8, 25, 120.0, 80.0, 100.0, 3),
         help="45 kleine Pakete – stresstest für die Raumnutzung.",
+    )
+with preset_col4:
+    st.button(
+        "📡 Enges Puzzle", use_container_width=True,
+        on_click=apply_preset, args=(25, 15, 55, 120.0, 80.0, 100.0, 3),
+        help="25 mittelgroße, gemischte Boxen bei knapper Kapazität – hier liegt Beam Search bei gleicher Rechenzeit spürbar vor Extreme-Point (empirisch gefunden, kein Zufall).",
     )
 
 st.caption(
@@ -88,9 +95,15 @@ sync_query_params(container_l, container_w, container_h, n_boxes, min_size, max_
 if "force_regen" not in st.session_state:
     st.session_state.force_regen = False
 
+# Alle Box-Generierungs-relevanten Parameter erfassen - nicht nur n_boxes.
+# (Bug gefunden und behoben: vorher wurde nur n_boxes geprüft, wodurch reine
+# Änderungen an Min./Max.-Kantenlänge oder Seed die Boxen NICHT neu erzeugt
+# haben, obwohl die Sidebar bereits die neuen Werte anzeigte - verwirrend und
+# funktional falsch. Siehe test_all_generation_params_trigger_regeneration.)
+gen_key = (n_boxes, min_size, max_size, int(seed))
 needs_init = (
     "boxes" not in st.session_state or regenerate or st.session_state.force_regen
-    or st.session_state.get("n_boxes_cache") != n_boxes
+    or st.session_state.get("gen_key_cache") != gen_key
 )
 if needs_init:
     lo = min(min_size, max_size)
@@ -100,7 +113,7 @@ if needs_init:
     st.session_state.boxes = pd.DataFrame(
         {"id": range(1, n_boxes + 1), "laenge": dims[:, 0], "breite": dims[:, 1], "hoehe": dims[:, 2]}
     )
-    st.session_state.n_boxes_cache = n_boxes
+    st.session_state.gen_key_cache = gen_key
     st.session_state.force_regen = False
 
 st.subheader("📋 Boxen (direkt editierbar)")
@@ -173,9 +186,24 @@ with tabs[len(METHODS)]:
 
     best = max(candidates, key=lambda s: s["final_utilization_pct"])
     worst = min(candidates, key=lambda s: s["final_utilization_pct"])
-    st.markdown(f"➡️ **{best['label']}** erreicht hier die bessere Raumnutzung.")
+    utilizations = [s["final_utilization_pct"] for s in candidates]
+    # Bug gefunden und behoben: max()/min() liefern bei einem echten Gleichstand
+    # (z. B. wenn ohnehin alle Boxen passen - dann ist "platziertes Volumen /
+    # Containervolumen" bei allen Methoden identisch, unabhängig von der
+    # tatsächlichen Packqualität) willkürlich den ERSTEN Kandidaten der Liste
+    # zurück. Das führte zu einer irreführenden "X ist besser"-Aussage bei
+    # tatsächlichem Gleichstand. Jetzt wird der Gleichstand explizit erkannt.
+    is_tied = (max(utilizations) - min(utilizations)) < 0.05
+    if is_tied:
+        st.markdown(
+            "➡️ Alle Methoden erreichen hier praktisch dieselbe Raumnutzung – vermutlich passen "
+            "bei dieser Instanz ohnehin alle Boxen hinein, wodurch sich Unterschiede in der "
+            "Packqualität nicht in dieser Kennzahl widerspiegeln."
+        )
+    else:
+        st.markdown(f"➡️ **{best['label']}** erreicht hier die bessere Raumnutzung.")
 
-    if best["label"] != worst["label"]:
+    if not is_tied and best["label"] != worst["label"]:
         best_ec, best_cost = volume_to_business(best["unplaced_volume"], best["container_volume"], cost_per_container)
         worst_ec, worst_cost = volume_to_business(worst["unplaced_volume"], worst["container_volume"], cost_per_container)
         containers_saved = worst_ec - best_ec
@@ -193,8 +221,9 @@ with st.expander("Wie funktioniert diese Demo?"):
 **Drei eigene Packheuristiken:**
 - *Schichten-basiert:* Boxen werden nach Höhe sortiert und in Reihen/Schichten angeordnet -
   einfach und schnell, verschwendet aber Raum, wenn Boxen innerhalb einer Schicht
-  unterschiedlich hoch sind (die Schichthöhe richtet sich nach der höchsten Box). Dient
-  als feste Baseline für den Vergleich.
+  unterschiedlich hoch sind (die Schichthöhe richtet sich nach der höchsten Box). Nutzt
+  bewusst **keine Rotation** (Boxen bleiben in ihrer gegebenen Ausrichtung) - Teil der
+  Einfachheit, die diese Heuristik als Baseline auszeichnet.
 - *Extreme-Point:* Verfolgt eine Liste konkurrierender Eckpunkte, an denen die nächste Box
   platziert werden könnte, und probiert dort alle 6 Rotationen durch - füllt Lücken
   zwischen unterschiedlich großen Boxen gezielter und erreicht dadurch meist deutlich
@@ -204,9 +233,10 @@ with st.expander("Wie funktioniert diese Demo?"):
   im Rennen. Im Schnitt etwas besser als Extreme-Point, bei großen, dünn besiedelten
   Containern aber manchmal ohne messbaren Vorteil und spürbar langsamer.
 
-**Rotationen:** Jede Box darf in allen 6 achsparallelen Ausrichtungen gedreht werden -
-in der Praxis wäre das nicht für jede Ladung sinnvoll (z. B. bei "diese Seite oben"-
-Kennzeichnung), für die Demo aber bewusst vereinfacht.
+**Rotationen:** Extreme-Point und Beam Search dürfen jede Box in allen 6 achsparallelen
+Ausrichtungen drehen (Schichten-basiert nicht, siehe oben) - in der Praxis wäre das nicht
+für jede Ladung sinnvoll (z. B. bei "diese Seite oben"-Kennzeichnung), für die Demo aber
+bewusst vereinfacht.
 
 **Animation:** Zeigt, wie die jeweilige Heuristik den Container Box für Box befüllt -
 mit Schritt-Regler und Auto-Play, analog zur Tourenplanung-Demo.

@@ -43,7 +43,7 @@ def test_default_load():
     assert len(at.tabs) == 4  # Schichten-basiert, Extreme-Point, Beam Search, Vergleich
 
 
-@pytest.mark.parametrize("label", ["Gleichmäßige Kartons", "Gemischte Ladung", "Viele kleine Pakete"])
+@pytest.mark.parametrize("label", ["Gleichmäßige Kartons", "Gemischte Ladung", "Viele kleine Pakete", "Enges Puzzle"])
 def test_presets_apply_without_crash(label):
     at = fresh_app()
     btn = [b for b in at.button if label in b.label][0]
@@ -112,7 +112,62 @@ def test_comparison_tab_has_all_three_methods():
     assert "Beam Search" in methods
 
 
-def test_permalink_writes_and_restores():
+def test_seed_change_alone_regenerates_boxes():
+    """Regressionstest für einen gefundenen Bug: Der Regenerierungs-Trigger
+    prüfte nur, ob sich die Anzahl Boxen geändert hat - ein reiner
+    Seed-Wechsel (ohne n_boxes zu ändern) erzeugte dadurch KEINE neuen Boxen,
+    obwohl die Sidebar bereits den neuen Seed zeigte. Betraf denselben
+    Fehlermuster wie ein noch ungeprüfter, vermutlich identischer Fall in der
+    Tourenplanung-Demo."""
+    at = fresh_app()
+    df_before = at.session_state["boxes"].copy()
+    at.number_input[0].set_value(999).run(timeout=TIMEOUT)
+    assert_ok(at)
+    df_after = at.session_state["boxes"]
+    assert not df_before.equals(df_after), "Boxen haben sich nach reinem Seed-Wechsel nicht geändert"
+
+
+def test_size_range_change_alone_regenerates_boxes():
+    """Regressionstest für denselben Bug: Auch ein reiner Wechsel von
+    Min./Max.-Kantenlänge (ohne n_boxes zu ändern) muss die Boxen neu
+    erzeugen. Vorher blieben die alten Box-Größen bestehen, obwohl die
+    Sidebar bereits die neuen Grenzen zeigte."""
+    at = fresh_app()
+    at.sidebar.slider[4].set_value(70).run(timeout=TIMEOUT)
+    at.sidebar.slider[5].set_value(90).run(timeout=TIMEOUT)
+    assert_ok(at)
+    df = at.session_state["boxes"]
+    assert df["laenge"].min() >= 70 - 1e-6
+    assert df["laenge"].max() <= 90 + 1e-6
+
+
+def test_comparison_tab_does_not_falsely_claim_winner_on_tie():
+    """Regressionstest für einen gefundenen Bug: Wenn alle drei Heuristiken
+    dieselbe Raumnutzung erreichen (z. B. weil ohnehin alle Boxen passen -
+    'platziertes Volumen / Containervolumen' ist dann bei allen Methoden
+    identisch, unabhängig von der tatsächlichen Packqualität), erklärte
+    max()/min() willkürlich den ERSTEN Kandidaten der Liste zum Sieger. Jetzt
+    wird ein echter Gleichstand erkannt und ehrlich benannt statt eine
+    Falschaussage zu treffen."""
+    at = fresh_app()
+    # Viele kleine Boxen in einem riesigen Container -> alles passt trivial,
+    # Raumnutzung ist dadurch bei allen drei Methoden identisch.
+    at.sidebar.slider[0].set_value(300).run(timeout=TIMEOUT)
+    at.sidebar.slider[1].set_value(300).run(timeout=TIMEOUT)
+    at.sidebar.slider[2].set_value(300).run(timeout=TIMEOUT)
+    at.sidebar.slider[3].set_value(5).run(timeout=TIMEOUT)
+    at.sidebar.slider[4].set_value(5).run(timeout=TIMEOUT)
+    at.sidebar.slider[5].set_value(15).run(timeout=TIMEOUT)
+    assert_ok(at)
+
+    md_texts = [str(m.value) for m in at.markdown]
+    winner_claims = [t for t in md_texts if "➡️" in t and "erreicht hier die bessere Raumnutzung" in t]
+    assert not winner_claims, f"Falschaussage bei Gleichstand gefunden: {winner_claims}"
+    tie_notes = [t for t in md_texts if "➡️" in t and "praktisch dieselbe Raumnutzung" in t]
+    assert tie_notes, "Erwarteter Gleichstand-Hinweis fehlt"
+
+
+
     at = fresh_app()
     assert_ok(at)
     qp = dict(at.query_params)
@@ -244,7 +299,31 @@ def test_single_box_too_large_for_container_is_unplaced():
         assert unplaced == [0]
 
 
-def test_beam_search_generally_at_least_as_good_as_extreme_point():
+def test_enges_puzzle_preset_shows_clear_beam_search_advantage():
+    """Auf Wunsch ergänzt: ein Szenario, in dem Beam Search deutlich (nicht
+    nur knapp) vor beiden anderen Heuristiken liegt - systematisch über viele
+    Konfigurationen gesucht (n_boxes 25-45, Boxgrößen 8-70cm, ~15 Seeds je
+    Konfiguration), nicht von Hand konstruiert. Mit den Standard-Beam-
+    Parametern (beam_width=6) erreicht, ohne Erhöhung der Rechenzeit -
+    größere Beam-Breiten (8/10/15) verbesserten das Ergebnis interessanterweise
+    NICHT zuverlässig, teils sogar leicht schlechter."""
+    container_dim = (120.0, 80.0, 100.0)
+    rng = np.random.default_rng(3)
+    boxes = _random_boxes(25, seed=3, lo=15, hi=55)
+
+    p_layer, _ = layer_based_packing(boxes, container_dim)
+    p_ep, _ = extreme_point_packing(boxes, container_dim)
+    p_bs, _ = beam_search_packing(boxes, container_dim)
+
+    u_layer = sum(box_volume(p["dim"]) for p in p_layer) / box_volume(container_dim) * 100
+    u_ep = sum(box_volume(p["dim"]) for p in p_ep) / box_volume(container_dim) * 100
+    u_bs = sum(box_volume(p["dim"]) for p in p_bs) / box_volume(container_dim) * 100
+
+    assert u_bs - u_ep > 10.0, f"Erwarteter deutlicher Vorsprung vor Extreme-Point fehlt: {u_bs:.1f}% vs {u_ep:.1f}%"
+    assert u_bs - u_layer > 35.0, f"Erwarteter deutlicher Vorsprung vor Schichten-basiert fehlt: {u_bs:.1f}% vs {u_layer:.1f}%"
+
+
+
     """Qualitäts-Sanity-Check, analog zum Extreme-Point-vs-Schichten-Test.
     Im Benchmark (siehe README) gewinnt Beam Search in 6 von 10 Instanzen,
     verliert nur 2 (jeweils um <1 Prozentpunkt) - im Schnitt +0,9
@@ -386,6 +465,38 @@ def test_generate_pack_plan_pdf_produces_valid_pdf():
     pdf_bytes = generate_pack_plan_pdf("Extreme-Point", placements, boxes, ids, unplaced, container_dim, 50.0)
     assert pdf_bytes[:4] == b"%PDF"
     assert len(pdf_bytes) > 500
+
+
+def test_intro_text_mentions_all_three_heuristics_by_name():
+    """Regressionstest für einen gefundenen Fehler: Beim Ergänzen von Beam
+    Search als dritte Heuristik wurde die besucherseitige Einleitung nicht
+    mitgepflegt - sie sprach weiterhin von 'zwei Heuristiken' und erwähnte
+    Beam Search gar nicht. Prüft positiv, dass alle drei Methodennamen in der
+    Einleitung vorkommen, statt nur auf Abwesenheit eines veralteten Wortes
+    ('zwei') zu prüfen - robuster gegenüber zukünftigen Umformulierungen."""
+    at = fresh_app()
+    assert_ok(at)
+    intro_texts = [str(m.value) for m in at.markdown if "dreidimensionalen Beladung" in str(m.value)]
+    assert intro_texts, "Einleitungstext nicht gefunden"
+    intro = intro_texts[0]
+    for name in ["schichtenweise", "Extreme-Point", "Beam Search"]:
+        assert name in intro, f"Einleitung erwähnt '{name}' nicht - Methodenzahl/-liste könnte veraltet sein"
+
+
+
+    """Regressionstest für eine gefundene falsche Erklärung: Der Text behauptete
+    pauschal 'Jede Box darf in allen 6 Ausrichtungen gedreht werden', obwohl
+    layer_based_packing laut eigenem Docstring KEINE Rotation nutzt (Boxen
+    bleiben in ihrer gegebenen Ausrichtung). Prüft, dass die Einschränkung im
+    erklärenden Text tatsächlich benannt wird."""
+    at = fresh_app()
+    assert_ok(at)
+    explanation_texts = [str(m.value) for m in at.markdown if "Schichten-basiert" in str(m.value) and "Rotation" in str(m.value)]
+    assert explanation_texts, "Erklärungstext mit Schichten-basiert und Rotation nicht gefunden"
+    combined = " ".join(explanation_texts)
+    assert "keine Rotation" in combined or "keine Rotation" in combined.lower(), (
+        "Erklärungstext sollte explizit nennen, dass Schichten-basiert keine Rotation nutzt"
+    )
 
 
 def test_feedback_log_and_count_roundtrip(tmp_path):
