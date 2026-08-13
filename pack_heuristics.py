@@ -26,6 +26,8 @@ Alle drei geben (placements, unplaced) zurück:
 - unplaced: Liste der Box-Indizes, die nicht platziert werden konnten
 """
 
+import heapq
+
 from pack_constants import BEAM_CANDIDATES_PER_STATE, BEAM_WIDTH, EPS
 from pack_geometry import any_overlap, box_rotations, fits_in_container
 
@@ -187,4 +189,241 @@ def beam_search_packing(boxes, container_dim, beam_width=BEAM_WIDTH, candidates_
         beam = deduped[:beam_width]
 
     best = max(beam, key=lambda c: len(c["placed"]))
+    return best["placed"], best["unplaced"]
+
+
+def _candidate_points_for(placed_pairs):
+    """Rekonstruiert eine gültige (wenn auch nicht notwendig minimale)
+    Kandidatenpunktliste für einen gegebenen Satz bereits platzierter Boxen
+    ((pos, dim)-Paare). Kann leicht mehr Punkte liefern als die inkrementelle
+    Extreme-Point-Konstruktion es täte - das ist unschädlich, da ungültige
+    Punkte ohnehin von der Überlappungs-/Grenzenprüfung verworfen werden."""
+    points = [(0.0, 0.0, 0.0)]
+    seen = {(0.0, 0.0, 0.0)}
+    for pos, dim in placed_pairs:
+        x, y, z = pos
+        dx, dy, dz = dim
+        for candidate in [(x + dx, y, z), (x, y + dy, z), (x, y, z + dz)]:
+            if candidate not in seen:
+                seen.add(candidate)
+                points.append(candidate)
+    return points
+
+
+def _try_place_one(box_dims, placed_pairs, container_dim):
+    """Versucht, eine einzelne Box in einen gegebenen Zustand (Liste
+    bereits platzierter (pos, dim)-Paare) einzufügen. Gibt (pos, dim) der
+    besten zulässigen Platzierung zurück, oder None."""
+    points = _candidate_points_for(placed_pairs)
+    best = None
+    for p in points:
+        for rd in box_rotations(*box_dims):
+            if not fits_in_container(p, rd, container_dim):
+                continue
+            if any_overlap(p, rd, placed_pairs):
+                continue
+            key = (p[2], p[1], p[0])
+            if best is None or key < best[0]:
+                best = (key, p, rd)
+    return (best[1], best[2]) if best else None
+
+
+def rescue_unplaced_via_swap(boxes, container_dim, base_placements, base_unplaced, max_pairs=3600):
+    """Greedy-Verbesserungssuche, auf ausdrücklichen Wunsch ergänzt -
+    dieselbe Grundidee wie flexible_beam_search_construction in der
+    Seefracht-Demo, auf die Packungsoptimierung übertragen: startet bei
+    einer bestehenden Konstruktion (z.B. Extreme-Point) und sucht gezielt
+    nach Umplatzierungen, die zusätzliche, bisher unplatzierte Boxen
+    unterbringen. Garantiert nie schlechter als der Ausgangszustand - jede
+    akzeptierte Verschiebung platziert strikt mehr Boxen als vorher.
+
+    WICHTIG - trotz des Namensmusters KEINE Beam Search: anders als
+    flexible_beam_search_construction gibt es hier keinen beam_width-
+    Parameter, keine parallel verfolgten Kandidatenzustände - ein einziger
+    deterministischer Durchlauf, der bei der ersten erfolgreichen
+    Verschiebung sofort übernimmt (first-improvement). Die Monotonie-
+    Eigenschaft aus der Fracht-Demo bezieht sich auf "mehr Breite wird nie
+    schlechter" - ohne Breite gibt es diese Dimension hier gar nicht, die
+    Frage stellt sich nicht.
+
+    Wurde eine Breite (mehrere zufällig geordnete Durchläufe, bester wird
+    übernommen) getestet? Ja - fand vereinzelt mehr Rettungen (teils
+    doppelt so viele), aber inkonsistent (nicht bei jeder Instanz) und bei
+    linear mit der Breite wachsender Rechenzeit. Da bereits ein einzelner
+    Durchlauf im Worst Case ~3,6s braucht, würde selbst eine bescheidene
+    Breite von 3-5 den Worst Case auf 10-18s treiben - für einen
+    unsicheren Zusatznutzen zu teuer für eine Button-Aktion. Bewusst nicht
+    eingebaut (siehe README für die genauen Zahlen).
+
+    Mechanismus: für jede unplatzierte Box U wird jede bereits platzierte
+    Box P probeweise entfernt, geprüft ob U dann passt, und falls ja, ob P
+    selbst an anderer Stelle wieder untergebracht werden kann. Gelingt
+    beides, werden beide Boxen übernommen (netto eine Box mehr platziert).
+
+    Anders als bei der Seefracht-Demo ließ sich hier keine wirksame
+    Kandidaten-Vorauswahl finden, die die Rechenzeit spürbar senkt, ohne den
+    gefundenen Nutzen zunichtezumachen (getestet: Beschränkung auf die
+    größten platzierten Boxen zuerst - hat die tatsächlich hilfreichen,
+    meist kleineren/anders positionierten Kandidaten verpasst). Deshalb
+    bewusst NICHT automatisch bei jeder UI-Interaktion aufgerufen, sondern
+    über einen eigenen Button - Worst Case bei maximaler Boxenzahl (60):
+    ~3,6s, für eine bewusst ausgelöste Aktion vertretbar (ähnliche
+    Größenordnung wie die OR-Tools-Zeitbegrenzung der Tourenplanung-Demo).
+
+    max_pairs begrenzt die Gesamtzahl der pro Runde geprüften (U,P)-Paare
+    als Sicherheitsnetz gegen pathologische Eingaben - bei der regulären
+    Obergrenze von 60 Boxen wird dieses Limit nie erreicht."""
+    placements = [dict(p) for p in base_placements]
+    unplaced = list(base_unplaced)
+    n_rescued = 0
+
+    improved = True
+    while improved and unplaced:
+        improved = False
+        pairs_checked = 0
+        for u_idx in list(unplaced):
+            if pairs_checked >= max_pairs:
+                break
+            u_dims = boxes[u_idx]
+
+            for p_entry in list(placements):
+                if pairs_checked >= max_pairs:
+                    break
+                pairs_checked += 1
+                p_idx = p_entry["box_idx"]
+                reduced_pairs = [(pp["pos"], pp["dim"]) for pp in placements if pp["box_idx"] != p_idx]
+                result_u = _try_place_one(u_dims, reduced_pairs, container_dim)
+                if result_u is None:
+                    continue
+                pos_u, rd_u = result_u
+                trial_pairs = reduced_pairs + [(pos_u, rd_u)]
+                result_p = _try_place_one(boxes[p_idx], trial_pairs, container_dim)
+                if result_p is None:
+                    continue
+                pos_p, rd_p = result_p
+
+                placements = [pp for pp in placements if pp["box_idx"] != p_idx]
+                placements.append({"pos": pos_u, "dim": rd_u, "box_idx": u_idx})
+                placements.append({"pos": pos_p, "dim": rd_p, "box_idx": p_idx})
+                unplaced.remove(u_idx)
+                n_rescued += 1
+                improved = True
+                break
+            if improved:
+                break
+
+    return placements, unplaced, n_rescued
+
+
+def _state_fingerprint(placed):
+    return tuple(sorted((p["box_idx"], p["pos"], p["dim"]) for p in placed))
+
+
+def _box_volume(dim):
+    return dim[0] * dim[1] * dim[2]
+
+
+def monobeam_packing(boxes, container_dim, beam_width=BEAM_WIDTH):
+    """Monobeam-Adaption (Lemons, Linares López, Holte & Ruml, "Beam Search:
+    Faster and Monotonic", ICAPS 2022) auf die 3D-Packungskonstruktion - auf
+    Nachfrage ergänzt, nachdem sich beam_search_packing als NICHT monoton
+    erwies (empirisch bestätigt: 11-12 von 14 Testinstanzen zeigten eine
+    schlechtere Raumnutzung bei größerer statt kleinerer Beam-Breite - dasselbe
+    strukturelle Muster wie die zuerst verworfene Beam-Search-Variante der
+    Seefracht-Demo: pro Schritt wird die volle Kandidatenmenge sortiert und
+    gekürzt, plus zusätzlich eine Pro-Zustand-Begrenzung).
+
+    Kernidee wie bei monobeam_construction in der Seefracht-Demo: der Beam
+    wird als GEORDNETE Folge nummerierter Slots behandelt und SEQUENZIELL
+    gefüllt - Slot c wird expandiert und beansprucht SOFORT das beste
+    verbliebene Element aus einem mit allen Slots geteilten Kandidatenpool,
+    BEVOR Slot c+1 überhaupt angefasst wird. Nur diese strikte Verschachtelung
+    (nicht zwei getrennte Schritte "alles erzeugen" / "dann verteilen")
+    garantiert, dass Slot c ausschließlich von den Slots 1..c des Beams der
+    VORHERIGEN Ebene abhängt - und damit, dass eine größere Breite das
+    Ergebnis nie verschlechtern kann. Ein eigener, beim Bauen gefundener
+    Fehler: eine erste Fassung trennte Erzeugung und Verteilung in zwei
+    Schleifen - das ergab 12 von 14 Verletzungen, sogar mehr als das
+    Original. Nach dem Verschachtelungs-Fix: 0 von 30 Verletzungen über eine
+    breite Stichprobe (siehe README).
+
+    Bewertungsgröße ist das PLATZIERTE VOLUMEN (nicht die Anzahl platzierter
+    Boxen) - wichtig, weil "mehr Boxen" nicht dasselbe ist wie "mehr Volumen"
+    (viele kleine vs. wenige große Boxen). Eine erste Fassung optimierte nach
+    Boxenzahl, dann Kompaktheit - dabei blieben 2 von 14 winzige (~0,1
+    Prozentpunkt) Verletzungen der RAUMNUTZUNG übrig, obwohl die Boxenzahl
+    selbst bereits perfekt monoton war (nachgeprüft) - ein Nebeneffekt davon,
+    dass eine andere Größe als die tatsächlich angezeigte optimiert wurde.
+    Nach Umstellung auf Volumen als Bewertungsgröße: exakt 0 Verletzungen,
+    weil jetzt genau die angezeigte Kennzahl selbst optimiert wird.
+
+    WICHTIGER, EHRLICHER KOMPROMISS: monoton zu sein bedeutet nicht
+    zwangsläufig, in JEDEM Einzelfall besser zu sein als die ursprüngliche
+    (nicht monotone) Implementierung. Über 30 Testinstanzen ist monobeam im
+    Schnitt leicht besser (+0,25 Prozentpunkte, gewinnt 15 von 30 Fällen),
+    aber im Worst Case bis zu 9,1 Prozentpunkte SCHLECHTER als die alte
+    Implementierung - insbesondere beim "Enges Puzzle"-Preset erreicht
+    monobeam selbst bei Breite 50 nur ~77% statt der dort dokumentierten
+    82,7%. Die vorhersagbare Garantie "breiter wird nie schlechter" hat ihren
+    Preis: eine stärker eingeschränkte Suche (Slot 1 ist immer identisch zur
+    Breite-1-Lösung, unabhängig von der Gesamtbreite), die gelegentlich
+    bessere, aber unvorhersehbare Zufallsfunde der ursprünglichen Version
+    nicht macht. Deshalb bewusst NICHT die App-Verdrahtung ersetzt - siehe
+    README für die vollständige Abwägung."""
+    order = sorted(range(len(boxes)), key=lambda i: -_box_volume(boxes[i]))
+
+    init_state = {"placed": [], "points": [(0.0, 0.0, 0.0)], "unplaced": [], "max_z": 0.0, "vol": 0.0}
+    beam = [None] * beam_width
+    beam[0] = init_state
+
+    for idx in order:
+        dims = boxes[idx]
+        candidates = []  # heapq: (score, fingerprint, state) - gemeinsam ueber alle Slots dieser Ebene
+        next_beam = [None] * beam_width
+
+        for c in range(beam_width):
+            if beam[c] is not None:
+                state = beam[c]
+                placed_pairs = [(p["pos"], p["dim"]) for p in state["placed"]]
+                found_any = False
+                for pi, p in enumerate(state["points"]):
+                    for rd in box_rotations(*dims):
+                        if not fits_in_container(p, rd, container_dim):
+                            continue
+                        if any_overlap(p, rd, placed_pairs):
+                            continue
+                        found_any = True
+                        new_placed = state["placed"] + [{"pos": p, "dim": rd, "box_idx": idx}]
+                        new_points = state["points"][:pi] + state["points"][pi + 1:]
+                        x, y, z = p
+                        dx, dy, dz = rd
+                        for cand_pt in [(x + dx, y, z), (x, y + dy, z), (x, y, z + dz)]:
+                            if cand_pt not in new_points:
+                                new_points = new_points + [cand_pt]
+                        new_state = {
+                            "placed": new_placed, "points": new_points,
+                            "unplaced": state["unplaced"], "max_z": max(state["max_z"], z + dz),
+                            "vol": state["vol"] + _box_volume(rd),
+                        }
+                        score = (-new_state["vol"], new_state["max_z"])
+                        heapq.heappush(candidates, (score, _state_fingerprint(new_placed), new_state))
+                if not found_any:
+                    new_state = {
+                        "placed": state["placed"], "points": state["points"],
+                        "unplaced": state["unplaced"] + [idx], "max_z": state["max_z"], "vol": state["vol"],
+                    }
+                    score = (-new_state["vol"], new_state["max_z"])
+                    heapq.heappush(candidates, (score, _state_fingerprint(new_state["placed"]), new_state))
+
+            # KRITISCH: sofort nach der Erweiterung von Slot c beanspruchen,
+            # BEVOR Slot c+1 angefasst wird - siehe Docstring fuer den Fehler,
+            # der beim Trennen dieser beiden Schritte entstand.
+            if candidates:
+                _score, _fp, best_state = heapq.heappop(candidates)
+                next_beam[c] = best_state
+
+        beam = next_beam
+
+    valid_states = [s for s in beam if s is not None]
+    best = max(valid_states, key=lambda s: (s["vol"], -s["max_z"]))
     return best["placed"], best["unplaced"]

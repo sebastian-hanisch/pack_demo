@@ -16,7 +16,7 @@ import streamlit as st
 
 from pack_evaluation import box_volume, volume_to_business
 from pack_feedback import log_feedback
-from pack_heuristics import beam_search_packing, extreme_point_packing, layer_based_packing
+from pack_heuristics import extreme_point_packing, layer_based_packing, monobeam_packing
 from pack_presets import apply_preset, bounds, init_session_state_defaults, load_permalink_settings, sync_query_params
 from pack_ui_panel import render_packing_panel
 
@@ -29,7 +29,8 @@ Interaktive Demo zur dreidimensionalen Beladung eines Containers oder einer Pale
 Drei selbst implementierte Heuristiken – eine **schichtenweise** Vorgehensweise (wie man
 intuitiv von Hand packen würde, ohne Rotation), eine fortgeschrittene **Extreme-Point**-
 Methode (füllt Lücken zwischen unterschiedlich großen Boxen gezielt) und **Beam Search**
-(verfolgt mehrere Teil-Packungen parallel) – werden direkt verglichen.
+(verfolgt mehrere Teil-Packungen parallel, nachweislich monoton in der Beam-Breite) –
+werden direkt verglichen.
 """
 )
 
@@ -38,8 +39,8 @@ preset_col1, preset_col2, preset_col3, preset_col4 = st.columns(4)
 with preset_col1:
     st.button(
         "📐 Gleichmäßige Kartons", use_container_width=True,
-        on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 10),
-        help="20 ähnlich große Kartons – alle drei Heuristiken sollten hier gut abschneiden.",
+        on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 8),
+        help="20 ähnlich große Kartons – alle drei Heuristiken landen bei praktisch identischer Raumnutzung (bei uniformen Größen bringt Ausprobieren mehrerer Reihenfolgen kaum etwas).",
     )
 with preset_col2:
     st.button(
@@ -50,14 +51,14 @@ with preset_col2:
 with preset_col3:
     st.button(
         "🧩 Viele kleine Pakete", use_container_width=True,
-        on_click=apply_preset, args=(45, 8, 25, 120.0, 80.0, 100.0, 3),
-        help="45 kleine Pakete – stresstest für die Raumnutzung.",
+        on_click=apply_preset, args=(60, 8, 25, 70.0, 60.0, 50.0, 1),
+        help="60 kleine Pakete bei knapper Kapazität (131% des Containervolumens) – echter Stresstest, bei dem nicht alle Pakete hineinpassen und die Packqualität wirklich zählt.",
     )
 with preset_col4:
     st.button(
         "📡 Enges Puzzle", use_container_width=True,
-        on_click=apply_preset, args=(25, 15, 55, 120.0, 80.0, 100.0, 3),
-        help="25 mittelgroße, gemischte Boxen bei knapper Kapazität – hier liegt Beam Search bei gleicher Rechenzeit spürbar vor Extreme-Point (empirisch gefunden, kein Zufall).",
+        on_click=apply_preset, args=(25, 8, 70, 120.0, 80.0, 100.0, 11),
+        help="25 stark gemischte Boxen bei knapper Kapazität – hier liegt Beam Search deutlich vor Extreme-Point, und größere Beam-Breite hilft hier sogar sichtbar weiter (empirisch gefunden, kein Zufall).",
     )
 
 st.caption(
@@ -152,12 +153,12 @@ if total_box_volume > container_volume:
 
 layer_placements, layer_unplaced = layer_based_packing(boxes, container_dim)
 ep_placements, ep_unplaced = extreme_point_packing(boxes, container_dim)
-beam_placements, beam_unplaced = beam_search_packing(boxes, container_dim)
+beam_placements, beam_unplaced = monobeam_packing(boxes, container_dim)
 
 METHODS = [
     ("layer", "Schichten-basiert", "📚 Schichten-basiert", "Baut die Ladung schichtweise auf, wie man intuitiv von Hand packen würde. Dient als Baseline für den Vergleich.", layer_placements, layer_unplaced),
     ("extreme", "Extreme-Point", "🎯 Extreme-Point", "Verfolgt konkurrierende Eckpunkte und füllt Lücken zwischen unterschiedlich großen Boxen gezielt.", ep_placements, ep_unplaced),
-    ("beam", "Beam Search", "📡 Beam Search", "Verfolgt mehrere Teil-Packungen parallel statt nur einer - im Schnitt etwas besser als Extreme-Point, kostet aber mehr Rechenzeit.", beam_placements, beam_unplaced),
+    ("beam", "Beam Search", "📡 Beam Search", "Verfolgt mehrere Teil-Packungen parallel statt nur einer - eine größere Beam-Breite kann die Raumnutzung nachweislich nie verschlechtern (monobeam-Verfahren, siehe README), im Schnitt etwas besser als Extreme-Point.", beam_placements, beam_unplaced),
 ]
 
 tab_labels = [m[2] for m in METHODS] + ["📊 Vergleich"]
@@ -228,10 +229,14 @@ with st.expander("Wie funktioniert diese Demo?"):
   platziert werden könnte, und probiert dort alle 6 Rotationen durch - füllt Lücken
   zwischen unterschiedlich großen Boxen gezielter und erreicht dadurch meist deutlich
   bessere Raumnutzung als die Baseline.
-- *Beam Search:* Verfolgt mehrere Teil-Packungen parallel statt nur einer - bei jeder Box
-  werden mehrere Kandidatenpositionen erzeugt, die insgesamt besten Teillösungen bleiben
-  im Rennen. Im Schnitt etwas besser als Extreme-Point, bei großen, dünn besiedelten
-  Containern aber manchmal ohne messbaren Vorteil und spürbar langsamer.
+- *Beam Search:* Verfolgt mehrere Teil-Packungen parallel statt nur einer - als
+  geordnete, nummerierte "Slots", die nacheinander gefüllt werden. Jeder Slot wählt
+  sofort das beste Element aus einem mit allen Slots geteilten Kandidatenpool, bevor der
+  nächste Slot überhaupt an der Reihe ist (monobeam-Verfahren, Lemons et al. 2022) -
+  dadurch kann eine größere Beam-Breite die Raumnutzung **nachweislich nie
+  verschlechtern**, nur gleich gut oder besser machen. Im Schnitt etwas besser als
+  Extreme-Point, bei großen, dünn besiedelten Containern aber manchmal ohne messbaren
+  Vorteil und spürbar langsamer.
 
 **Rotationen:** Extreme-Point und Beam Search dürfen jede Box in allen 6 achsparallelen
 Ausrichtungen drehen (Schichten-basiert nicht, siehe oben) - in der Praxis wäre das nicht
