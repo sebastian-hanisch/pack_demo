@@ -557,6 +557,37 @@ def test_box_mesh_triangles_have_consistent_outward_normals():
         )
 
 
+def test_box_meshes_render_fully_opaque_with_explicit_lighting():
+    """Regressionstest für einen vom Nutzer gemeldeten Fehler: 'manche
+    Packstücke scheinen durchsichtig zu sein, andere nicht, allen fehlt die
+    feste Substanz'. Ursache: jede Box ist ein eigener go.Mesh3d-Trace: bei
+    Halbtransparenz (opacity<1) muss WebGL mehrere UNABHÄNGIGE Traces nach
+    Tiefe sortiert überblenden - das gelingt zwischen getrennten Traces
+    nicht zuverlässig, wodurch je nach Zeichenreihenfolge/Kamerawinkel
+    manche Boxen die Überblendung 'gewinnen' (wirken solide) und andere
+    'verlieren' (wirken durchsichtig). Prüft, dass alle Box-Traces mit
+    voller Deckkraft (kein Alpha-Blending zwischen Traces nötig, nur
+    einfacher Z-Buffer-Tiefenvergleich - immer korrekt) und expliziter
+    Beleuchtung (mehr Kontrast/Plastizität statt flacher Optik) gerendert
+    werden."""
+    from pack_visualization import build_3d_figure
+
+    container_dim = (120.0, 80.0, 100.0)
+    placements = [
+        {"box_idx": 0, "pos": (0.0, 0.0, 0.0), "dim": (30.0, 30.0, 30.0)},
+        {"box_idx": 1, "pos": (30.0, 0.0, 0.0), "dim": (30.0, 30.0, 30.0)},
+        {"box_idx": 2, "pos": (0.0, 30.0, 0.0), "dim": (30.0, 30.0, 30.0)},
+    ]
+    boxes = [(30.0, 30.0, 30.0)] * 3
+    fig = build_3d_figure(placements, boxes, ["A", "B", "C"], container_dim)
+
+    box_traces = [t for t in fig.data if t.type == "mesh3d"]
+    assert len(box_traces) == 3
+    for trace in box_traces:
+        assert trace.opacity == 1.0, f"Erwartete volle Deckkraft, bekam {trace.opacity}"
+        assert trace.lighting is not None, "Erwartete explizite Beleuchtung fehlt"
+
+
 def test_evaluate_packing_utilization_and_unplaced():
     boxes = _random_boxes(20, seed=1)
     container_dim = (120.0, 80.0, 100.0)

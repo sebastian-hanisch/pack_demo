@@ -336,7 +336,7 @@ nicht eingebaut; Button und Docstring korrekt auf "Greedy-Verbesserungssuche"
 umbenannt, mit Regressionstest (`test_rescue_button_not_mislabeled_as_beam_search`),
 der sicherstellt, dass "Beam" nicht wieder fälschlich im Button-Text auftaucht.
 
-## Zwei gemeldete Darstellungsfehler in der 3D-Ansicht
+## Drei gemeldete Darstellungsfehler in der 3D-Ansicht
 
 ### 1. Verzerrte Achsen bei nicht-würfelförmigen Containern
 
@@ -392,8 +392,39 @@ vertauscht, dass alle 12 Dreiecke jetzt konsistent nach außen zeigen. Die abged
 Fläche je Seite bleibt dabei unverändert (nur die Wicklungsrichtung ändert sich, nicht
 die Position der Dreiecke) - verifiziert durch Neuberechnung der Flächensumme je Seite
 nach der Korrektur.
+
+### 3. Uneinheitliche Transparenz zwischen den Box-Meshes
+
+Weiter präzisiert: "manche Packstücke scheinen durchsichtig zu sein, andere nicht, und
+allen fehlt irgendwie die feste Substanz". Ursache: jede Box ist ein eigener,
+unabhängiger `go.Mesh3d`-Trace, gerendert mit `opacity=0.85` (Halbtransparenz).
+
+**Warum das zu inkonsistenter Durchsichtigkeit führte:** bei Halbtransparenz muss der
+Renderer mehrere überlappende bzw. nahe beieinanderliegende Objekte nach Tiefe
+sortiert überblenden (Alpha-Blending), damit die Sichtbarkeit stimmt. Das funktioniert
+zuverlässig INNERHALB eines einzelnen Meshs, aber nicht zwangsläufig ZWISCHEN mehreren
+UNABHÄNGIGEN Traces - Plotlys WebGL-Backend sortiert primär die Dreiecke innerhalb
+eines Traces, nicht notwendigerweise alle Traces einer Szene gegeneinander. Je nach
+Zeichenreihenfolge (welche Box zuerst zur Figur hinzugefügt wurde) und Kamerawinkel
+konnte eine Box die Überblendung "gewinnen" (wirkt solide) oder "verlieren" (wirkt
+durchsichtig) - unabhängig von ihrer tatsächlichen 3D-Position. Die pauschale
+Halbtransparenz selbst erklärt zusätzlich das "fehlt die feste Substanz".
+
+**Fix:** volle Deckkraft (`opacity=1.0` statt `0.85`) - damit reicht ein einfacher
+Tiefenvergleich (Z-Buffer) statt Alpha-Blending, der zwischen unabhängigen Traces immer
+korrekt funktioniert, keine Sortierungsmehrdeutigkeit mehr möglich. Zusätzlich
+explizite Beleuchtungsparameter (`lighting`, `lightposition`) statt Plotlys
+Standardwerten ergänzt - mehr Kontrast zwischen Licht und Schatten je Fläche, wirkt
+plastischer/fester statt flach - profitiert von den jetzt korrekt nach außen zeigenden
+Flächennormalen aus Fund 2, da Beleuchtungsberechnung direkt von der Normalenrichtung
+abhängt.
+`test_box_meshes_render_fully_opaque_with_explicit_lighting`.
+
+Alle drei Funde mit Regressionstests abgesichert:
 `test_container_wireframe_matches_actual_dimensions_not_cube`,
-`test_container_wireframe_matches_dimensions_for_all_presets`.
+`test_container_wireframe_matches_dimensions_for_all_presets`,
+`test_box_mesh_triangles_have_consistent_outward_normals`,
+`test_box_meshes_render_fully_opaque_with_explicit_lighting`.
 
 ## 1. Lokal ausführen
 
@@ -412,7 +443,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-77 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+78 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)

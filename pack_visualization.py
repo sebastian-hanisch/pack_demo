@@ -28,7 +28,7 @@ _BOX_TRIANGLES_J = [2, 3, 5, 6, 1, 5, 6, 7, 7, 4, 2, 6]
 _BOX_TRIANGLES_K = [1, 2, 6, 7, 5, 4, 2, 6, 3, 7, 6, 5]
 
 
-def _box_mesh_trace(pos, dim, color, name, opacity=0.85):
+def _box_mesh_trace(pos, dim, color, name, opacity=1.0):
     x0, y0, z0 = pos
     dx, dy, dz = dim
     x1, y1, z1 = x0 + dx, y0 + dy, z0 + dz
@@ -39,6 +39,23 @@ def _box_mesh_trace(pos, dim, color, name, opacity=0.85):
         x=xs, y=ys, z=zs,
         i=_BOX_TRIANGLES_I, j=_BOX_TRIANGLES_J, k=_BOX_TRIANGLES_K,
         color=color, opacity=opacity, flatshading=True,
+        # Auf Nutzerhinweis ergänzt ("manche Packstücke wirken durchsichtig,
+        # andere nicht, alle wirken irgendwie 'fest' unterrepräsentiert"):
+        # bei halbtransparenten (opacity<1) Boxen muss WebGL mehrere
+        # UNABHÄNGIGE Mesh3d-Traces (eine pro Box) nach Tiefe sortiert
+        # überblenden - das gelingt zwischen getrennten Traces nicht
+        # zuverlässig, wodurch je nach Zeichenreihenfolge und Kamerawinkel
+        # manche Boxen die Überblendung "gewinnen" (wirken solide) und
+        # andere "verlieren" (wirken durchsichtig). Volle Deckkraft
+        # (opacity=1.0) umgeht das komplett - dann reicht einfacher
+        # Tiefenvergleich (Z-Buffer) statt Alpha-Blending, das ist
+        # zwischen unabhängigen Traces immer korrekt. Zusätzlich explizite
+        # Beleuchtung statt Plotlys Standardwerten - gibt den Flächen mehr
+        # Kontrast zwischen Licht und Schatten (wirkt "fester", nicht flach
+        # papierartig), abhängig von den jetzt korrekt nach außen
+        # zeigenden Flächennormalen (siehe vorherige Korrektur).
+        lighting=dict(ambient=0.55, diffuse=0.7, specular=0.35, roughness=0.6, fresnel=0.1),
+        lightposition=dict(x=100, y=-100, z=200),
         name=name, hovertext=name, hoverinfo="text", showlegend=False,
     )
 
