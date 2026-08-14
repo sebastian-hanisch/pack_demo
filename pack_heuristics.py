@@ -385,29 +385,77 @@ def monobeam_packing(boxes, container_dim, beam_width=BEAM_WIDTH):
     Original. Nach dem Verschachtelungs-Fix: 0 von 30 Verletzungen über eine
     breite Stichprobe (siehe README).
 
-    Bewertungsgröße ist das PLATZIERTE VOLUMEN (nicht die Anzahl platzierter
-    Boxen) - wichtig, weil "mehr Boxen" nicht dasselbe ist wie "mehr Volumen"
-    (viele kleine vs. wenige große Boxen). Eine erste Fassung optimierte nach
-    Boxenzahl, dann Kompaktheit - dabei blieben 2 von 14 winzige (~0,1
-    Prozentpunkt) Verletzungen der RAUMNUTZUNG übrig, obwohl die Boxenzahl
-    selbst bereits perfekt monoton war (nachgeprüft) - ein Nebeneffekt davon,
-    dass eine andere Größe als die tatsächlich angezeigte optimiert wurde.
-    Nach Umstellung auf Volumen als Bewertungsgröße: exakt 0 Verletzungen,
-    weil jetzt genau die angezeigte Kennzahl selbst optimiert wird.
+    PRO-SCHRITT-BEWERTUNG (welcher Kandidat je Slot beansprucht wird): DBL
+    ("tiefste, hinterste, am weitesten linke" Position - z, y, x der
+    Kandidatenposition), exakt wie extreme_point_packing. Auf scharfe
+    Nutzerfrage hin korrigiert - eine frühere Fassung bewertete stattdessen
+    nach (-Volumen, resultierende Maximalhöhe): da das Volumen für EIN
+    bestimmtes Packstück bei jeder gültigen Position gleich ist, reduzierte
+    sich das faktisch auf "minimiere die resultierende Maximalhöhe" - ein
+    ANDERES Kriterium als DBL. Dadurch war Breite 1 NICHT identisch mit
+    extreme_point_packing, obwohl das naheliegend erschien ("Breite 1 sollte
+    doch praktisch Extreme-Point sein") - Extreme-Point konnte dadurch sogar
+    BESSER als Beam Search abschneiden (z. B. "Gemischte Ladung"-Preset:
+    81,4% vs. 78,8%), was der Monotonie-Garantie widersprach: eine größere
+    Breite sollte nie schlechter sein als Breite 1, aber wenn Breite 1 nicht
+    einmal Extreme-Point erreicht, hilft die Garantie an dieser Stelle nicht.
 
-    WICHTIGER, EHRLICHER KOMPROMISS: monoton zu sein bedeutet nicht
-    zwangsläufig, in JEDEM Einzelfall besser zu sein als die ursprüngliche
-    (nicht monotone) Implementierung. Über 30 Testinstanzen ist monobeam im
-    Schnitt leicht besser (+0,25 Prozentpunkte, gewinnt 15 von 30 Fällen),
-    aber im Worst Case bis zu 9,1 Prozentpunkte SCHLECHTER als die alte
-    Implementierung - insbesondere beim "Enges Puzzle"-Preset erreicht
-    monobeam selbst bei Breite 50 nur ~77% statt der dort dokumentierten
-    82,7%. Die vorhersagbare Garantie "breiter wird nie schlechter" hat ihren
-    Preis: eine stärker eingeschränkte Suche (Slot 1 ist immer identisch zur
-    Breite-1-Lösung, unabhängig von der Gesamtbreite), die gelegentlich
-    bessere, aber unvorhersehbare Zufallsfunde der ursprünglichen Version
-    nicht macht. Deshalb bewusst NICHT die App-Verdrahtung ersetzt - siehe
-    README für die vollständige Abwägung."""
+    Zwei Ursachen, nicht nur eine: (1) die Bewertungsgröße selbst
+    (DBL vs. Maximalhöhe) UND (2) die Auflösung ECHTER Gleichstände (mehrere
+    gültige Rotationen an derselben Position) - Extreme-Point löst diese
+    über die Erzeugungsreihenfolge auf ("zuerst gefunden gewinnt", da
+    `points` außen, Rotationen innen durchlaufen werden), monobeam vorher
+    über den State-Fingerprint (eine andere, unabhängige Regel). Erst nach
+    Korrektur BEIDER Punkte (DBL als Score, `gen_order`-Zähler als Tie-Break
+    in derselben Reihenfolge wie Extreme-Point) war Breite 1 byte-identisch
+    mit extreme_point_packing, über 9 getestete Instanzen verifiziert.
+
+    Versucht, aber verworfen: die resultierende Maximalhöhe als ZUSÄTZLICHEN
+    Tie-Break NACH DBL zu verwenden (statt der reinen Erzeugungsreihenfolge)
+    - naheliegend, um "das Beste aus beiden Bewertungsgrößen zu kombinieren".
+    Ergebnis: Breite 1 wich dadurch wieder in 12 von 14 Fällen von
+    Extreme-Point ab, in 6 davon sogar SCHLECHTER - die Kombination brach
+    die Übereinstimmung erneut auf, weil Extreme-Points eigene Tie-Break-
+    Regel nicht höhenbasiert ist. Auch als Test, ob eine höhenbasierte
+    Tie-Break-Regel Extreme-Point SELBST verbessern würde (dann könnten
+    beide synchron auf das bessere Kriterium umgestellt werden): über 20
+    Instanzen fast ausgeglichen (9 besser, 8 schlechter) - keine der beiden
+    Regeln ist objektiv überlegen, nur unterschiedlich. Die eigentliche
+    "Kombination", die funktioniert, ist keine cleverere Pro-Schritt-Formel,
+    sondern die saubere Aufgabentrennung: DBL lenkt die Suche (bewährt,
+    exakt wie Extreme-Point), eine deterministische Reihenfolge löst echte
+    Gleichstände auf (ebenfalls wie Extreme-Point), und erst die
+    FINAL-AUSWAHL zwischen den am Ende verbliebenen Beam-Zuständen nutzt das
+    tatsächlich interessierende PLATZIERTE VOLUMEN (siehe unten) - der
+    eigentliche Nutzen einer größeren Breite kommt daher, mehrere
+    unterschiedlich aufgelöste Gleichstands-Pfade parallel zu verfolgen und
+    danach den besten zu übernehmen, nicht aus einer schlaueren
+    Einzelentscheidung.
+
+    Bewertungsgröße für die FINALE Auswahl zwischen verschiedenen
+    Beam-Zuständen am Ende ist weiterhin das PLATZIERTE VOLUMEN (nicht die
+    Anzahl platzierter Boxen) - wichtig, weil "mehr Boxen" nicht dasselbe
+    ist wie "mehr Volumen" (viele kleine vs. wenige große Boxen). Eine noch
+    frühere Fassung optimierte hier nach Boxenzahl, dann Kompaktheit - dabei
+    blieben 2 von 14 winzige (~0,1 Prozentpunkt) Verletzungen der
+    RAUMNUTZUNG übrig, obwohl die Boxenzahl selbst bereits perfekt monoton
+    war (nachgeprüft) - ein Nebeneffekt davon, dass eine andere Größe als
+    die tatsächlich angezeigte optimiert wurde. Nach Umstellung auf Volumen:
+    exakt 0 Verletzungen, weil jetzt genau die angezeigte Kennzahl selbst
+    optimiert wird.
+
+    ERGEBNIS DER DBL-KORREKTUR: da Breite 1 jetzt exakt Extreme-Point
+    entspricht UND die Monotonie-Garantie gilt, folgt zwingend: Beam Search
+    kann bei KEINER Breite mehr schlechter als Extreme-Point sein - über 30
+    Testinstanzen verifiziert (5 besser, 0 schlechter, 25 gleich). Das war
+    vorher nicht garantiert. Eine Nebenwirkung: der zuvor demonstrierte
+    "Enges Puzzle"-Vorsprung (71,8%→80,7%) verschwand bei diesem konkreten
+    Seed komplett (blieb exakt bei 71,8%, selbst bei Breite 32) - er war
+    teilweise ein Artefakt der falschen Bewertungsgröße, keine echte
+    Exploration. Echte, wenn auch seltenere und kleinere Vorteile durch
+    Breite bleiben nachweisbar (systematisch neu gesucht: 41 von ~300
+    getesteten Konfigurationen zeigen >1 Prozentpunkt Vorsprung, bester Fund
+    +6,3 Prozentpunkte) - siehe README für den neu gefundenen Preset."""
     order = sorted(range(len(boxes)), key=lambda i: -_box_volume(boxes[i]))
 
     init_state = {"placed": [], "points": [(0.0, 0.0, 0.0)], "unplaced": [], "max_z": 0.0, "vol": 0.0}
@@ -416,8 +464,9 @@ def monobeam_packing(boxes, container_dim, beam_width=BEAM_WIDTH):
 
     for idx in order:
         dims = boxes[idx]
-        candidates = []  # heapq: (score, fingerprint, state) - gemeinsam ueber alle Slots dieser Ebene
+        candidates = []  # heapq: (score, Erzeugungsreihenfolge, fingerprint, state) - gemeinsam ueber alle Slots dieser Ebene
         next_beam = [None] * beam_width
+        gen_order = 0  # gleiche Tie-Break-Regel wie Extreme-Point: zuerst gefunden gewinnt bei Gleichstand
 
         for c in range(beam_width):
             if beam[c] is not None:
@@ -445,21 +494,23 @@ def monobeam_packing(boxes, container_dim, beam_width=BEAM_WIDTH):
                             "unplaced": state["unplaced"], "max_z": max(state["max_z"], z + dz),
                             "vol": state["vol"] + _box_volume(rd),
                         }
-                        score = (-new_state["vol"], new_state["max_z"])
-                        heapq.heappush(candidates, (score, _state_fingerprint(new_placed), new_state))
+                        score = (p[2], p[1], p[0])  # DBL: unten/hinten/links, wie Extreme-Point
+                        heapq.heappush(candidates, (score, gen_order, _state_fingerprint(new_placed), new_state))
+                        gen_order += 1
                 if not found_any:
                     new_state = {
                         "placed": state["placed"], "points": state["points"],
                         "unplaced": state["unplaced"] + [idx], "max_z": state["max_z"], "vol": state["vol"],
                     }
-                    score = (-new_state["vol"], new_state["max_z"])
-                    heapq.heappush(candidates, (score, _state_fingerprint(new_state["placed"]), new_state))
+                    score = (float("inf"), float("inf"), float("inf"))
+                    heapq.heappush(candidates, (score, gen_order, _state_fingerprint(new_state["placed"]), new_state))
+                    gen_order += 1
 
             # KRITISCH: sofort nach der Erweiterung von Slot c beanspruchen,
             # BEVOR Slot c+1 angefasst wird - siehe Docstring fuer den Fehler,
             # der beim Trennen dieser beiden Schritte entstand.
             if candidates:
-                _score, _fp, best_state = heapq.heappop(candidates)
+                _score, _order, _fp, best_state = heapq.heappop(candidates)
                 next_beam[c] = best_state
 
         beam = next_beam

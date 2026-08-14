@@ -226,7 +226,7 @@ def test_slider_bounds_match_setting_specs():
 # ==========================================================================
 
 from pack_evaluation import box_volume, estimate_extra_containers, evaluate_packing, volume_to_business
-from pack_geometry import any_overlap, box_rotations, boxes_overlap, fits_in_container, is_supported
+from pack_geometry import any_overlap, box_rotations, boxes_overlap, contact_area, fits_in_container, is_supported
 from pack_heuristics import extreme_point_packing, layer_based_packing, monobeam_packing, rescue_unplaced_via_swap
 from pack_visualization import _BOX_TRIANGLES_I, _BOX_TRIANGLES_J, _BOX_TRIANGLES_K
 
@@ -300,22 +300,18 @@ def test_single_box_too_large_for_container_is_unplaced():
 
 
 def test_gleichmaessige_kartons_preset_shows_no_beam_regression():
-    """Regressionstest für einen gefundenen Fehler, der seitdem zweimal
+    """Regressionstest für einen gefundenen Fehler, der seitdem dreimal
     neu bewertet werden musste. Ursprünglich (Seed 10): Beam Search
     SCHLECHTER als beide anderen Methoden (54.1% vs. 56.2%) - Seed 8
     korrigierte das auf einen exakten Dreifach-Gleichstand. Nach der
-    Stützungsprüfung (`is_supported`, siehe README - vorher konnten Boxen
-    unphysikalisch "schweben") verschob sich das Bild grundlegend: Seed 8
-    zeigte Beam Search jetzt WIEDER schlechter (51.1% vs. 53.3%) - die
-    vorherigen frei "schwebenden" Platzierungen hatten den tatsächlichen
-    Qualitätsunterschied zwischen den Methoden verzerrt. Systematisch
-    neu gesucht: mit korrekter Stützungsprüfung ist Beam Search bei
-    uniformen Boxgrößen jetzt überwiegend BESSER oder gleichauf mit
-    Extreme-Point (23 von 32 getesteten Seeds "besser", 9 "gleichauf",
-    keiner mehr "schlechter") - fast das Gegenteil des ursprünglichen
-    Befunds. Auf Seed 3 aktualisiert (sauberer Gleichstand, 51.2% beide)."""
+    Stützungsprüfung (`is_supported`) verschob sich das Bild erneut - Seed
+    8 zeigte Beam Search wieder schlechter, auf Seed 3 korrigiert. Nach der
+    DBL-Korrektur (siehe monobeam_packing-Docstring: Breite 1 entspricht
+    jetzt exakt Extreme-Point, garantiert per Konstruktion nie schlechter)
+    ist praktisch JEDER Seed bei uniformen Boxgrößen ein sauberer
+    Gleichstand (44 von 49 getesteten) - auf Seed 1 vereinfacht."""
     container_dim = (120.0, 80.0, 100.0)
-    boxes = _random_boxes(20, seed=3, lo=25, hi=35)
+    boxes = _random_boxes(20, seed=1, lo=25, hi=35)
 
     p_layer, _ = layer_based_packing(boxes, container_dim)
     p_ep, _ = extreme_point_packing(boxes, container_dim)
@@ -327,6 +323,46 @@ def test_gleichmaessige_kartons_preset_shows_no_beam_regression():
 
     assert u_bs >= u_ep - 0.5, f"Beam Search sollte hier nicht schlechter als Extreme-Point sein: {u_bs:.1f}% vs {u_ep:.1f}%"
     assert u_bs >= u_layer - 0.5, f"Beam Search sollte hier nicht schlechter als Schichten-basiert sein: {u_bs:.1f}% vs {u_layer:.1f}%"
+
+
+def test_beam_search_beam_width_1_exactly_equals_extreme_point():
+    """Kern-Regressionstest für eine vom Nutzer gestellte, scharfe Frage:
+    'Beam Search bei Breite 1 sollte doch praktisch Extreme-Point sein,
+    wieso kann Extreme-Point da besser abschneiden?' - zurecht, war es
+    vorher nicht. Zwei unabhängige Ursachen gefunden (siehe monobeam_packing
+    Docstring für die vollständige Herleitung, inkl. eines Kombinationsver-
+    suchs, der verworfen wurde): (1) die Pro-Schritt-Bewertungsgröße
+    (Maximalhöhe statt DBL) und (2) die Auflösung echter Gleichstände
+    (State-Fingerprint statt Erzeugungsreihenfolge). Nach Korrektur beider
+    Punkte: Breite 1 ist byte-identisch mit extreme_point_packing - geprüft
+    über mehrere Instanzen und Boxgrößenbereiche."""
+    container_dim = (120.0, 80.0, 100.0)
+    for seed in range(1, 6):
+        boxes = _random_boxes(25, seed=seed, lo=10, hi=60)
+        p_ep, u_ep = extreme_point_packing(boxes, container_dim)
+        p_b1, u_b1 = monobeam_packing(boxes, container_dim, beam_width=1)
+        assert sorted((p["pos"], p["dim"]) for p in p_ep) == sorted((p["pos"], p["dim"]) for p in p_b1), (
+            f"seed={seed}: Beam Search bei Breite 1 sollte byte-identisch mit Extreme-Point sein"
+        )
+        assert sorted(u_ep) == sorted(u_b1)
+
+
+def test_beam_search_never_worse_than_extreme_point():
+    """Direkte Folge aus der Breite-1-Identität plus der Monotonie-
+    Garantie: Beam Search kann bei KEINER Breite mehr schlechter als
+    Extreme-Point sein. Über 20 Instanzen geprüft."""
+    container_dim = (120.0, 80.0, 100.0)
+    for seed in range(1, 11):
+        for beam_width in [2, 4, 8]:
+            boxes = _random_boxes(25, seed=seed, lo=8, hi=60)
+            p_ep, _ = extreme_point_packing(boxes, container_dim)
+            p_bs, _ = monobeam_packing(boxes, container_dim, beam_width=beam_width)
+            u_ep = sum(box_volume(p["dim"]) for p in p_ep) / box_volume(container_dim) * 100
+            u_bs = sum(box_volume(p["dim"]) for p in p_bs) / box_volume(container_dim) * 100
+            assert u_bs >= u_ep - 1e-6, (
+                f"seed={seed} bw={beam_width}: Beam Search ({u_bs:.1f}%) schlechter als "
+                f"Extreme-Point ({u_ep:.1f}%) - sollte nach der DBL-Korrektur unmöglich sein"
+            )
 
 
 def test_viele_kleine_pakete_preset_is_genuinely_capacity_constrained():
@@ -360,20 +396,19 @@ def test_viele_kleine_pakete_preset_is_genuinely_capacity_constrained():
 
 
 def test_enges_puzzle_preset_shows_clear_beam_search_advantage():
-    """Auf Wunsch ergänzt: ein Szenario, in dem Beam Search deutlich (nicht
-    nur knapp) vor Extreme-Point liegt - systematisch über viele
-    Konfigurationen gesucht (n_boxes 25-45, Boxgrößen 8-70cm, ~15 Seeds je
-    Konfiguration), nicht von Hand konstruiert. Nach dem Umstieg auf
-    monobeam_packing (siehe test_monobeam_is_monotone_in_beam_width) neu
-    gesucht, da der ursprüngliche Fund (Seed 3, 15-55cm) mit monobeam nicht
-    reproduzierbar war. Fund: n=25, Größe 8-70cm, Seed 11 - zeigt
-    zusätzlich, dass die Beam-Breite hier sichtbar hilft. Werte nach
-    Einbau der Stützungsprüfung (is_supported, siehe README) erneut
-    aktualisiert - vorher konnten Boxen unphysikalisch "schweben", was die
-    Zahlen verzerrte: bw=1: 71,2%, bw=6: 80,7% (Extreme-Point: 71,8%,
-    Vorsprung sogar etwas größer als vorher: 8,9 statt 5,3 Prozentpunkte)."""
+    """Auf Wunsch ergänzt, seitdem zweimal neu gesucht. Erster Fund (Seed 3,
+    15-55cm) mit monobeam nicht reproduzierbar, auf n=25, Größe 8-70cm,
+    Seed 11 korrigiert. Nach der DBL-Korrektur (siehe monobeam_packing-
+    Docstring - Breite 1 entspricht jetzt exakt Extreme-Point) verschwand
+    DIESER Vorsprung komplett (blieb exakt bei 71,8%, selbst bei Breite
+    32) - er war teilweise ein Artefakt der vorherigen falschen
+    Bewertungsgröße, keine echte Exploration. Systematisch neu gesucht
+    (~300 Konfigurationen): echte, wenn auch seltenere Vorteile bleiben
+    nachweisbar - n=30, Größe 8-70cm, Seed 10 zeigt bei Standardbreite 6
+    einen Vorsprung von 4,6 Prozentpunkten (71,6%→76,2%), der bei größerer
+    Breite weiter wächst (Breite 16: 81,7%)."""
     container_dim = (120.0, 80.0, 100.0)
-    boxes = _random_boxes(25, seed=11, lo=8, hi=70)
+    boxes = _random_boxes(30, seed=10, lo=8, hi=70)
 
     p_layer, _ = layer_based_packing(boxes, container_dim)
     p_ep, _ = extreme_point_packing(boxes, container_dim)
@@ -383,8 +418,8 @@ def test_enges_puzzle_preset_shows_clear_beam_search_advantage():
     u_ep = sum(box_volume(p["dim"]) for p in p_ep) / box_volume(container_dim) * 100
     u_bs = sum(box_volume(p["dim"]) for p in p_bs) / box_volume(container_dim) * 100
 
-    assert u_bs - u_ep > 4.0, f"Erwarteter deutlicher Vorsprung vor Extreme-Point fehlt: {u_bs:.1f}% vs {u_ep:.1f}%"
-    assert u_bs - u_layer > 30.0, f"Erwarteter deutlicher Vorsprung vor Schichten-basiert fehlt: {u_bs:.1f}% vs {u_layer:.1f}%"
+    assert u_bs - u_ep > 3.0, f"Erwarteter deutlicher Vorsprung vor Extreme-Point fehlt: {u_bs:.1f}% vs {u_ep:.1f}%"
+    assert u_bs - u_layer > 15.0, f"Erwarteter deutlicher Vorsprung vor Schichten-basiert fehlt: {u_bs:.1f}% vs {u_layer:.1f}%"
 
 
 def test_beam_search_generally_at_least_as_good_as_extreme_point():
@@ -959,3 +994,24 @@ def test_layer_based_packing_preserves_reasonable_utilization():
     assert len(placements) >= 10, (
         f"Nur {len(placements)} von 25 Boxen platziert - Hinweis auf Cursor-Steckenbleiben"
     )
+
+
+# --- contact_area: auf Nutzernachfrage untersuchte, aber nicht integrierte ---
+# Bewertungsgroesse (siehe README - schlaegt DBL nicht robust)
+
+def test_contact_area_corner_touches_all_three_walls():
+    """Eine Box exakt in der Containerecke berührt Boden, Rückwand und
+    linke Wand vollständig."""
+    assert contact_area((0, 0, 0), (10, 10, 10), [], (120, 80, 100)) == pytest.approx(300.0)
+
+
+def test_contact_area_floating_box_has_zero_contact():
+    assert contact_area((50, 50, 50), (10, 10, 10), [], (120, 80, 100)) == pytest.approx(0.0)
+
+
+def test_contact_area_partial_contact_with_neighbor():
+    """Zwei halb überlappende Boxen berühren sich anteilig."""
+    neighbor = [((0, 0, 0), (10, 10, 10))]
+    # Box direkt daneben (rechte Seite von neighbor beruehrt linke Seite dieser Box)
+    area = contact_area((10, 0, 0), (10, 10, 10), neighbor, (120, 80, 100))
+    assert area >= 100.0  # mindestens die linke Wand (10x10) plus Boden

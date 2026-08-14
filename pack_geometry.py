@@ -105,3 +105,63 @@ def is_supported(pos, dim, placed_boxes, eps=EPS):
             if not cell_covered:
                 return False
     return True
+
+
+def contact_area(pos, dim, placed_boxes, container_dim, eps=EPS):
+    """Wie viel Fläche einer Box (Boden, Rückwand, linke Wand) tatsächlich
+    an etwas Festem anliegt - Containerwänden ODER anderen Boxen. Aus der
+    Container-Loading-Literatur (Crainic, Perboli, Tadei 2008, "Extreme
+    Point-Based Heuristics for Three-Dimensional Bin Packing"): eine Box,
+    die an mehreren Seiten satt anliegt, sitzt kompakter als eine, die nur
+    zufällig eine tiefe Koordinate hat, aber eigentlich frei zwischen
+    Lücken schwebt (positionsbezogen statt geometrisch).
+
+    HINWEIS: auf Nutzernachfrage implementiert und in vier Varianten gegen
+    DBL getestet (siehe README) - keine schlägt DBL robust, deshalb NICHT
+    in die Konstruktionsheuristiken integriert. Als eigenständige,
+    getestete Funktion belassen (Reproduzierbarkeit der Untersuchung,
+    falls jemand später weiter experimentieren möchte)."""
+    x0, y0, z0 = pos
+    dx, dy, dz = dim
+    total = 0.0
+
+    # Boden-Kontakt: Containerboden (z=0) ODER Oberseiten anderer Boxen bei z0
+    if z0 <= eps:
+        total += dx * dy
+    else:
+        for ppos, pdim in placed_boxes:
+            px, py, pz = ppos
+            pdx, pdy, pdz = pdim
+            if abs((pz + pdz) - z0) > eps:
+                continue
+            ox = max(0.0, min(px + pdx, x0 + dx) - max(px, x0))
+            oy = max(0.0, min(py + pdy, y0 + dy) - max(py, y0))
+            total += ox * oy
+
+    # Rueckwand-Kontakt: Containerwand (y=0) ODER Vorderseiten anderer Boxen bei y0
+    if y0 <= eps:
+        total += dx * dz
+    else:
+        for ppos, pdim in placed_boxes:
+            px, py, pz = ppos
+            pdx, pdy, pdz = pdim
+            if abs((py + pdy) - y0) > eps:
+                continue
+            ox = max(0.0, min(px + pdx, x0 + dx) - max(px, x0))
+            oz = max(0.0, min(pz + pdz, z0 + dz) - max(pz, z0))
+            total += ox * oz
+
+    # Linke-Wand-Kontakt: Containerwand (x=0) ODER rechte Seiten anderer Boxen bei x0
+    if x0 <= eps:
+        total += dy * dz
+    else:
+        for ppos, pdim in placed_boxes:
+            px, py, pz = ppos
+            pdx, pdy, pdz = pdim
+            if abs((px + pdx) - x0) > eps:
+                continue
+            oy = max(0.0, min(py + pdy, y0 + dy) - max(py, y0))
+            oz = max(0.0, min(pz + pdz, z0 + dz) - max(pz, z0))
+            total += oy * oz
+
+    return total

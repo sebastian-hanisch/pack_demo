@@ -39,7 +39,7 @@ preset_col1, preset_col2, preset_col3, preset_col4 = st.columns(4)
 with preset_col1:
     st.button(
         "📐 Gleichmäßige Kartons", use_container_width=True,
-        on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 3),
+        on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 1),
         help="20 ähnlich große Kartons – hier landen Extreme-Point und Beam Search bei praktisch identischer Raumnutzung.",
     )
 with preset_col2:
@@ -57,8 +57,8 @@ with preset_col3:
 with preset_col4:
     st.button(
         "📡 Enges Puzzle", use_container_width=True,
-        on_click=apply_preset, args=(25, 8, 70, 120.0, 80.0, 100.0, 11),
-        help="25 stark gemischte Boxen bei knapper Kapazität – hier liegt Beam Search deutlich vor Extreme-Point, und größere Beam-Breite hilft hier sogar sichtbar weiter (empirisch gefunden, kein Zufall).",
+        on_click=apply_preset, args=(30, 8, 70, 120.0, 80.0, 100.0, 10),
+        help="30 stark gemischte Boxen bei knapper Kapazität – hier liegt Beam Search deutlich vor Extreme-Point, und größere Beam-Breite hilft hier sogar sichtbar weiter (empirisch gefunden, kein Zufall).",
     )
 
 st.caption(
@@ -158,7 +158,7 @@ beam_placements, beam_unplaced = monobeam_packing(boxes, container_dim)
 METHODS = [
     ("layer", "Schichten-basiert", "📚 Schichten-basiert", "Baut die Ladung schichtweise auf, wie man intuitiv von Hand packen würde. Dient als Baseline für den Vergleich.", layer_placements, layer_unplaced),
     ("extreme", "Extreme-Point", "🎯 Extreme-Point", "Verfolgt konkurrierende Eckpunkte und füllt Lücken zwischen unterschiedlich großen Boxen gezielt.", ep_placements, ep_unplaced),
-    ("beam", "Beam Search", "📡 Beam Search", "Verfolgt mehrere Teil-Packungen parallel statt nur einer - eine größere Beam-Breite kann die Raumnutzung nachweislich nie verschlechtern (monobeam-Verfahren, siehe README), im Schnitt etwas besser als Extreme-Point.", beam_placements, beam_unplaced),
+    ("beam", "Beam Search", "📡 Beam Search", "Verfolgt mehrere Teil-Packungen parallel statt nur einer - eine größere Beam-Breite kann die Raumnutzung nachweislich nie verschlechtern (monobeam-Verfahren, siehe README) und ist bei Standardbreite nie schlechter als Extreme-Point.", beam_placements, beam_unplaced),
 ]
 
 tab_labels = [m[2] for m in METHODS] + ["📊 Vergleich"]
@@ -234,9 +234,11 @@ with st.expander("Wie funktioniert diese Demo?"):
   sofort das beste Element aus einem mit allen Slots geteilten Kandidatenpool, bevor der
   nächste Slot überhaupt an der Reihe ist (monobeam-Verfahren, Lemons et al. 2022) -
   dadurch kann eine größere Beam-Breite die Raumnutzung **nachweislich nie
-  verschlechtern**, nur gleich gut oder besser machen. Im Schnitt etwas besser als
-  Extreme-Point, bei großen, dünn besiedelten Containern aber manchmal ohne messbaren
-  Vorteil und spürbar langsamer.
+  verschlechtern**, nur gleich gut oder besser machen. Breite 1 entspricht dabei exakt
+  Extreme-Point (dieselbe Positionswahl-Regel) - daraus folgt: Beam Search kann bei
+  keiner Breite mehr schlechter als Extreme-Point sein, nur gleich gut oder besser. Bei
+  großen, dünn besiedelten Containern manchmal ohne messbaren Zusatzvorteil und spürbar
+  langsamer.
 
 **Rotationen:** Extreme-Point und Beam Search dürfen jede Box in allen 6 achsparallelen
 Ausrichtungen drehen (Schichten-basiert nicht, siehe oben) - in der Praxis wäre das nicht

@@ -553,6 +553,112 @@ gelockert - jede neue Zahl wurde einzeln nachgerechnet.
 `test_gleichmaessige_kartons_preset_shows_no_beam_regression`,
 `test_rescue_finds_known_improvement_on_viele_kleine_pakete`.
 
+## "Sollte Extreme-Point nicht in Beam Search enthalten sein?" - eine berechtigte Frage
+
+Scharfe Nachfrage: Beam Search bei Breite 1 sollte doch praktisch Extreme-Point sein,
+und dank der Monotonie-Garantie sollte eine größere Breite nie schlechter werden - wie
+kann Extreme-Point dann in Presets wie "Gemischte Ladung" (81,4 % vs. 78,8 %) besser
+abschneiden als Beam Search?
+
+### Zwei unabhängige Ursachen, nicht nur eine
+
+Direkt geprüft: Breite 1 war tatsächlich NICHT identisch mit Extreme-Point.
+
+1. **Falsche Bewertungsgröße.** Monobeam bewertete Kandidaten pro Schritt nach
+   `(-Volumen, resultierende Maximalhöhe)`, Extreme-Point nach DBL (`z, y, x` der
+   Position - "tiefste, hinterste, am weitesten linke"). Da das Volumen für EIN
+   bestimmtes Packstück bei JEDER gültigen Position identisch ist, reduzierte sich
+   Monobeams Kriterium faktisch auf "minimiere die resultierende Maximalhöhe" - ein
+   anderes Kriterium als DBL, nicht nur eine andere Formulierung desselben.
+2. **Unterschiedliche Gleichstand-Auflösung.** Selbst nach Angleichen der
+   Bewertungsgröße blieben die Ergebnisse verschieden. Grund: mehrere gültige
+   Rotationen an derselben Position ergeben denselben DBL-Wert (der nur von der
+   Position abhängt, nicht der Rotation) - ein ECHTER Gleichstand. Extreme-Point löst
+   das über die Erzeugungsreihenfolge auf (`points` außen, Rotationen innen
+   durchlaufen, striktes `<` behält den ZUERST gefundenen bei Gleichstand). Monobeams
+   Heap löste stattdessen über den State-Fingerprint auf - eine andere, unabhängige
+   Regel. Empirisch häufig: bei einer 25-Boxen-Instanz traten 24 solcher echten
+   Gleichstände auf.
+
+### Der Fix, und ein Kombinationsversuch, der nicht funktionierte
+
+Beide Punkte korrigiert (DBL als Bewertungsgröße, ein expliziter
+Erzeugungsreihenfolge-Zähler als Tie-Break, in derselben Reihenfolge wie
+Extreme-Point) - danach war Breite 1 **byte-identisch** mit `extreme_point_packing`,
+über mehrere Instanzen verifiziert.
+
+Naheliegender nächster Gedanke: könnte man die Vorteile beider Bewertungsgrößen
+kombinieren, indem die resultierende Maximalhöhe als ZUSÄTZLICHER Tie-Break nach DBL
+dient (statt der reinen Erzeugungsreihenfolge)? Getestet - Ergebnis negativ: Breite 1
+wich dadurch wieder in 12 von 14 Fällen von Extreme-Point ab, in 6 davon sogar
+SCHLECHTER. Auch als Test, ob eine höhenbasierte Tie-Break-Regel Extreme-Point SELBST
+verbessern würde (dann könnten beide synchron umgestellt werden): über 20 Instanzen
+fast ausgeglichen (9 besser, 8 schlechter) - keine der beiden Regeln ist objektiv
+überlegen, nur unterschiedlich.
+
+**Die Kombination, die tatsächlich funktioniert, ist keine cleverere Formel pro
+Schritt, sondern eine saubere Aufgabentrennung:** DBL lenkt die Suche (bewährt, exakt
+wie Extreme-Point), eine deterministische Reihenfolge löst echte Gleichstände auf
+(ebenfalls wie Extreme-Point), und erst die Auswahl zwischen den am Ende verbliebenen
+Beam-Zuständen nutzt das tatsächlich interessierende Volumen. Der eigentliche Nutzen
+einer größeren Breite kommt daher, mehrere unterschiedlich aufgelöste
+Gleichstands-Pfade parallel zu verfolgen und danach den besten zu übernehmen - nicht
+aus einer schlaueren Einzelentscheidung an jedem Schritt.
+
+### Ergebnis: die vom Nutzer erwartete Eigenschaft gilt jetzt tatsächlich
+
+Da Breite 1 exakt Extreme-Point entspricht UND die Monotonie-Garantie gilt, folgt
+zwingend: Beam Search kann bei KEINER Breite mehr schlechter als Extreme-Point sein.
+Über 30 Testinstanzen verifiziert (5 besser, 0 schlechter, 25 gleich) - vorher war das
+nicht garantiert. Alle vier Presets zeigen das jetzt korrekt:
+
+| Preset | Extreme-Point | Beam Search |
+|---|---|---|
+| Gleichmäßige Kartons | 50,3 % | 50,3 % |
+| Gemischte Ladung | 81,4 % | 81,6 % |
+| Viele kleine Pakete | 70,9 % | 71,1 % |
+| Enges Puzzle | 71,6 % | 76,2 % |
+
+`test_beam_search_beam_width_1_exactly_equals_extreme_point`,
+`test_beam_search_never_worse_than_extreme_point`.
+
+### Gibt es eine schlauere Bewertungsgröße als DBL? Nachgefragt und getestet
+
+DBL ist bewährt, aber nicht zwangsläufig optimal - naheliegende Nachfrage: gibt es aus
+der Container-Loading-Literatur etwas Besseres? Ein bekannter Ansatz (u. a. bei
+Crainic/Perboli/Tadei selbst diskutiert): **Kontaktfläche maximieren** - eine Box, die
+an mehreren Seiten (Boden, Rückwand, linke Wand oder andere Boxen) satt anliegt, sitzt
+kompakter als eine, die nur zufällig eine tiefe Koordinate hat.
+
+Implementiert (`contact_area()` in `pack_geometry.py`, exakte Flächenüberlappung, kein
+Stichproben-Raster) und in vier Varianten gegen DBL getestet:
+
+| Variante | Ergebnis (28-135 Instanzen) |
+|---|---|
+| Reine Kontaktfläche | DBL besser (15 vs. 11 Siege) |
+| DBL zuerst, Kontaktfläche als Gleichstand-Kriterium | fast ausgeglichen, Ø −0,36pp |
+| Kontaktfläche zuerst, DBL als Gleichstand-Kriterium | DBL besser (15 vs. 11), Ø −0,51pp |
+| Gewichtete Kombination (normierte Höhe − Gewicht × normierte Kontaktfläche) | auf 56 Instanzen scheinbar +0,51pp, auf 135 Instanzen **verschwand der Vorteil wieder** (Ø −0,2 bis −0,3pp) - ein Stichproben-Zufallseffekt, kein robuster Befund |
+
+**Keine der vier Varianten schlägt DBL robust.** Das ist selbst ein ehrliches Ergebnis,
+kein Fehlschlag der Suche - DBL ist in der Literatur nicht nur aus Bequemlichkeit
+etabliert, sondern weil es für dieses Setting bereits schwer zu schlagen ist. Bei DBL
+belassen, statt eine unbewiesene Alternative einzubauen.
+
+
+
+Bei dem zuvor verwendeten Seed (n=25, Seed 11) blieb Beam Search nach der Korrektur
+exakt bei Extreme-Points Wert (71,8 %) - selbst bei Breite 32. Der vorher gezeigte
+Vorsprung (71,8 %→80,7 %) war teilweise ein Artefakt der falschen Bewertungsgröße,
+keine echte Exploration mehrerer Gleichstands-Pfade. Systematisch neu gesucht (~300
+Konfigurationen): echte, wenn auch seltenere Vorteile bleiben nachweisbar (41
+Konfigurationen mit >1 Prozentpunkt Vorsprung gefunden). Auf n=30, Größe 8-70cm, Seed
+10 aktualisiert - zeigt bei Standardbreite 6 einen Vorsprung von 4,6 Prozentpunkten
+(71,6 %→76,2 %), der mit wachsender Breite weiter zunimmt (Breite 16: 81,7 %). Auch
+"Gleichmäßige Kartons" wurde erneut geprüft: mit der DBL-Korrektur zeigt praktisch
+jeder Seed einen sauberen Gleichstand (44 von 49 getesteten) statt nur einem einzelnen
+sorgfältig gesuchten - auf den einfachsten verfügbaren Seed (1) vereinfacht.
+
 ## 1. Lokal ausführen
 
 ```bash
@@ -570,7 +676,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-89 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+94 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)
