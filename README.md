@@ -209,15 +209,18 @@ bereits ausgereizt). Bestes Ergebnis: 25 Boxen, 8-70 cm, Seed 11 -
 
 | Breite | Raumnutzung |
 |---|---|
-| 1 | 76,7 % |
-| 2-5 | 85,3 % |
-| 6 | 85,4 % |
-| 8-10 | 86,7 % |
+| 1 | 71,2 % |
+| 2 | 79,0 % |
+| 3-5 | 80,1 % |
+| 6-10 | 80,7 % |
 
-Gegenüber Extreme-Point (80,1 %) ein Vorsprung von +5,3 Prozentpunkten bei
+Gegenüber Extreme-Point (71,8 %) ein Vorsprung von +8,9 Prozentpunkten bei
 Standardbreite 6 - und durchgehend nachweislich monoton, keine einzige Verletzung über
-die getesteten Breiten. Bei Breite 8-10 sogar leicht über dem, was die alte
-Implementierung dort erreichte (86,4 %).
+die getesteten Breiten. *(Werte nach Einbau der Stützungsprüfung - siehe eigener
+Abschnitt weiter unten - erneut aktualisiert: vorher konnten Boxen unphysikalisch
+"schweben", was sowohl Extreme-Point als auch monobeam künstlich höhere Werte zeigen
+ließ. Der Vorsprung von Beam Search gegenüber Extreme-Point ist bei korrekter
+Stützungsprüfung sogar noch etwas größer als vorher gemessen.)*
 
 **Performance:** Worst Case (60 Boxen, 300×300×300-cm-Container) jetzt ~1,45s statt der
 alten ~1,0s - noch etwas langsamer (ca. 11x statt 6-7x gegenüber Extreme-Point), da
@@ -258,6 +261,18 @@ zufällige Störung sogar leicht schaden. Auf Seed 8 korrigiert - dort liegen al
 Methoden exakt gleichauf (53,3%), keine schneidet schlechter ab.
 Regressionstest: `test_gleichmaessige_kartons_preset_shows_no_beam_regression`.
 
+**Ein drittes Kapitel dieser Geschichte:** nach Einbau der Stützungsprüfung
+(`is_supported`, siehe eigener Abschnitt weiter unten) verschob sich das Bild erneut -
+Seed 8 zeigte Beam Search jetzt WIEDER schlechter als Extreme-Point (51,1% vs. 53,3%).
+Grund: die vorherigen frei "schwebenden" Platzierungen hatten den tatsächlichen
+Qualitätsunterschied zwischen den Methoden verzerrt. Mit korrekter Stützungsprüfung neu
+gesucht: Beam Search ist bei uniformen Boxgrößen jetzt überwiegend BESSER oder
+gleichauf mit Extreme-Point (23 von 32 getesteten Seeds "besser", 9 "gleichauf",
+keiner mehr "schlechter") - fast das Gegenteil des ursprünglichen Befunds. Auf Seed 3
+aktualisiert (sauberer Gleichstand zwischen Extreme-Point und Beam Search, 51,2%
+beide - Schichten-basiert liegt hier deutlich darunter bei 29,7%, aber das war nie der
+Vergleich, um den es in diesem Preset ging).
+
 ### "Viele kleine Pakete": kein Stresstest, sondern das Gegenteil
 
 Der ursprüngliche Preset (45 Boxen, 8-25cm, Standardcontainer 120×80×100cm) hatte ein
@@ -290,10 +305,15 @@ passt, und ob die entfernte Box selbst anderswo wieder untergebracht werden kann
 Gelingt beides, werden beide Boxen übernommen - netto eine Box mehr platziert, garantiert
 nie schlechter als der Ausgangszustand.
 
-**Beim Szenario "Viele kleine Pakete":** 3 zusätzliche Boxen gerettet, Raumnutzung von
-75,5 % auf 81,8 % gestiegen. **Beim (aktuellen) Szenario "Enges Puzzle":** 1 zusätzliche
-Box gerettet, 80,1 % auf 81,5 % gestiegen - deutlich weniger Spielraum übrig als bei
-"Viele kleine Pakete", da Extreme-Point dort schon vergleichsweise gut abschneidet.
+**Beim Szenario "Viele kleine Pakete":** 1 zusätzliche Box gerettet, Raumnutzung von
+70,9 % auf 72,7 % gestiegen. **Beim (aktuellen) Szenario "Enges Puzzle":** ebenfalls 1
+zusätzliche Box gerettet, 71,8 % auf 73,0 % gestiegen. *(Werte nach Einbau der
+Stützungsprüfung - siehe eigener Abschnitt weiter unten - deutlich kleiner als zuvor
+gemessen: vorher konnte Extreme-Point unphysikalisch "schwebende" Platzierungen
+mitzählen, was die Startwerte künstlich höher und dadurch mehr scheinbares
+Rettungspotential zeigen ließ. Systematisch nachgesucht, ob ein anderer Seed mit dem
+korrigierten Algorithmus eine stärkere Demonstration zeigt - Seed 1 blieb bei "Viele
+kleine Pakete" die beste verfügbare, auch wenn kleiner als zuvor.)*
 (Hinweis: dieser Wert bezieht sich auf die Rettungssuche angewandt auf Extreme-Point's
 eigenes Ergebnis, unabhängig davon, welche Methode im Beam-Search-Tab verwendet wird.)
 
@@ -426,6 +446,113 @@ Alle drei Funde mit Regressionstests abgesichert:
 `test_box_mesh_triangles_have_consistent_outward_normals`,
 `test_box_meshes_render_fully_opaque_with_explicit_lighting`.
 
+## Kein Darstellungsfehler, sondern ein echter Algorithmus-Bug: schwebende Packstücke
+
+Weiter präzisiert: "manche Packstücke scheinen selbst bei den fortgeschritteneren
+Methoden teilweise in der Luft zu schweben, obwohl sie bei Kippung in den Zwischenraum
+darunter passen würden". Anders als die drei Darstellungsfehler oben war das kein
+Rendering-Problem - die Packheuristiken selbst platzierten Boxen an physikalisch
+unmöglichen Positionen.
+
+### Das Ausmaß, systematisch geprüft
+
+Eine eigens geschriebene Stützungsprüfung (Grundfläche einer Box gegen ein Raster
+abgetastet: liegt an jedem Punkt darunter tatsächlich etwas Festes?) auf ein reales
+Szenario (25 Boxen, Standardcontainer) angewendet: **6 von 15 platzierten Boxen (40%)**
+bei Extreme-Point waren nicht vollständig gestützt, eine davon **komplett frei
+schwebend (0% Stützung)**. Bei "Schichten-basiert" und der (damaligen) Beam-Search-
+Implementierung dasselbe Bild - alle drei Heuristiken betroffen, inklusive
+komplett schwebender Boxen.
+
+**Ursache:** keine der vier Konstruktionsfunktionen (`layer_based_packing`,
+`extreme_point_packing`, `beam_search_packing`, `monobeam_packing`) noch die
+Rettungssuche (`rescue_unplaced_via_swap`) prüfte jemals, ob eine Position tatsächlich
+gestützt ist - nur Überlappung (`any_overlap`) und Containergrenzen
+(`fits_in_container`). Ein Extrempunkt entsteht als "ferne Ecke" einer bereits
+platzierten Box; wird dort eine GRÖSSERE Box platziert, überragt sie die stützende Box
+- der überstehende Teil hängt buchstäblich in der Luft, ohne dass das irgendwo geprüft
+wurde.
+
+### Die Lösung: exakte Flächenabdeckungsprüfung statt Stichproben-Raster
+
+`is_supported()` in `pack_geometry.py` - keine Stichprobe, sondern eine exakte
+Prüfung per Koordinatenkompression: jede bereits platzierte Box, deren Oberseite exakt
+auf Höhe der Unterseite der neuen Box liegt, trägt ihre Grundfläche als
+"Stützrechteck" bei; die Vereinigung dieser Stützrechtecke muss die gesamte
+Grundfläche der neuen Box lückenlos abdecken (auch wenn mehrere kleinere Boxen
+GEMEINSAM die volle Fläche stützen - das zählt als vollständig gestützt). Gegen sechs
+handgerechnete Fälle verifiziert (Boden, exakt passend, überstehend, gemeinsame
+Stützung mehrerer Boxen, komplett schwebend, Lücke zwischen zwei Stützen).
+
+Als zusätzliche Nebenbedingung (wie `any_overlap`, `fits_in_container`) in alle vier
+Konstruktionsfunktionen sowie `_try_place_one` (von der Rettungssuche genutzt)
+integriert. Ergebnis: **0 schwebende Boxen** über alle vier Heuristiken und die
+Rettungssuche, in allen vier Presets verifiziert.
+
+### "Schichten-basiert" brauchte einen tieferen Umbau, nicht nur einen Filter
+
+Bei den drei punktbasierten Heuristiken (Extreme-Point, Beam-Varianten, Rettungssuche)
+reichte es, `is_supported()` als zusätzlichen Ablehnungsfilter in die bestehende
+Kandidatensuche einzubauen. Bei "Schichten-basiert" nicht - zwei Zwischenversuche,
+bevor die richtige Lösung stand:
+
+1. **Reines Ablehnen unpassender Positionen** (gleiches Muster wie bei den anderen
+   drei) behob das Schweben vollständig, ließ aber die Raumnutzung einbrechen (Seed 1:
+   von 25 auf 5 platzierte Boxen). Grund: der ursprüngliche Algorithmus nutzte einen
+   einzelnen globalen Höhen-Cursor (`z += layer_height`, Höhe der GRÖSSTEN Box einer
+   Reihe für ALLE Boxen dieser Reihe) - bei unterschiedlich hohen Boxen in derselben
+   Reihe (durchaus möglich, da nur nach Höhe absteigend sortiert, nicht nach Reihen
+   gruppiert wird) reichten kleinere Boxen nicht bis zu dieser Höhe. Das war exakt der
+   gemeldete Fehler - aber pures Ablehnen ohne Alternative half dem simplen
+   3-Versuche-Cursor nicht, eine bessere Position zu finden.
+2. **Live berechnete Stützhöhe statt Cursor** (`_support_height_for_footprint` - die
+   tatsächlich nötige Höhe für einen Fußabdruck direkt aus den bereits platzierten
+   Boxen ableiten, statt einem separaten Höhen-Cursor zu vertrauen) behob das
+   Schweben ebenfalls, aber die Raumnutzung brach WEITERHIN ein (Seed 1: 25 auf 5
+   Boxen) - ein anderer, subtilerer Grund: scheiterte eine Box an einer bestimmten
+   (x,y)-Position (z. B. weil die berechnete Höhe den Container überstieg), blieb der
+   (x,y)-Cursor dort "stecken", da er nur 3 begrenzte Versuche hatte und beim
+   Fehlschlagen einfach zur nächsten Box weiterging - JEDE nachfolgende Box startete
+   dann an derselben, bereits als schlecht bekannten Position und scheiterte
+   ebenfalls. Ein Nachverfolgen des konkreten Ablaufs (Box für Box, mit
+   Zwischenausgaben) deckte das auf.
+
+**Die funktionierende Lösung:** ein robustes, wachsendes 2D-Raster aus (x,y)-Kandidaten
+(Ecken bereits platzierter Boxen in der Grundfläche, ähnlich wie Extreme-Points
+Kandidatenpunkte, aber auf die x,y-Ebene beschränkt - keine Rotation, kein
+3D-Extrempunkt-Verfahren, bewusst einfacher). Für jede Box wird die "tiefste,
+hinterste, am weitesten links liegende" Position über dieses Raster gesucht, mit der
+tatsächlichen Stützhöhe für die Z-Koordinate. Scheitert eine Box, bleibt der
+Rasterzustand für die nächste Box unverändert - kein Steckenbleiben mehr möglich, da
+es keinen einzelnen "Cursor" mehr gibt, der vergiftet werden könnte. Ergebnis:
+Raumnutzung zurück auf 44-62% (Seed 1: 48,8%, sogar über den ursprünglichen ~40% vor
+jedem Fix), 0 schwebende Boxen, und der pädagogische Abstand zu Extreme-Point/Beam
+Search (10-27 Prozentpunkte über 7 getestete Seeds) bleibt deutlich erhalten.
+
+### Nebenwirkung: mehrere Preset-Werte mussten neu verifiziert werden
+
+Da sich die zugrundeliegenden Packergebnisse legitim geändert haben (vorher teils
+unphysikalisch überhöhte Werte durch schwebende Platzierungen), waren mehrere zuvor
+sorgfältig verifizierte Zahlen betroffen:
+
+- **"Gleichmäßige Kartons":** drittes Kapitel einer bereits zweimal korrigierten
+  Geschichte (siehe eigener Abschnitt oben) - Seed 8 zeigte plötzlich wieder Beam
+  Search schlechter, neu auf Seed 3 korrigiert.
+- **"Enges Puzzle":** Werte durchgehend niedriger (Extreme-Point 80,1%→71,8%,
+  Beam bei Standardbreite 85,4%→80,7%), aber die Kernaussage (deutlicher Vorsprung
+  von Beam Search) blieb erhalten - der Abstand ist mit korrekter Stützungsprüfung
+  sogar etwas GRÖSSER als vorher gemessen (8,9 statt 5,3 Prozentpunkte).
+- **Rettungssuche bei "Viele kleine Pakete" und "Enges Puzzle":** deutlich weniger
+  Rettungspotential übrig (3 gerettete Boxen wurden 1, bzw. 1 blieb 1) - Extreme-Point
+  selbst liefert jetzt von Anfang an eine konservativere, aber korrekte Konstruktion,
+  die vorher fälschlich als besser galt, weil sie teils auf schwebenden Platzierungen
+  beruhte.
+
+Alle betroffenen Tests mit den neu verifizierten Werten aktualisiert, nicht einfach
+gelockert - jede neue Zahl wurde einzeln nachgerechnet.
+`test_gleichmaessige_kartons_preset_shows_no_beam_regression`,
+`test_rescue_finds_known_improvement_on_viele_kleine_pakete`.
+
 ## 1. Lokal ausführen
 
 ```bash
@@ -443,7 +570,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-78 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+89 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)

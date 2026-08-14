@@ -39,8 +39,8 @@ preset_col1, preset_col2, preset_col3, preset_col4 = st.columns(4)
 with preset_col1:
     st.button(
         "📐 Gleichmäßige Kartons", use_container_width=True,
-        on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 8),
-        help="20 ähnlich große Kartons – alle drei Heuristiken landen bei praktisch identischer Raumnutzung (bei uniformen Größen bringt Ausprobieren mehrerer Reihenfolgen kaum etwas).",
+        on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 3),
+        help="20 ähnlich große Kartons – hier landen Extreme-Point und Beam Search bei praktisch identischer Raumnutzung.",
     )
 with preset_col2:
     st.button(

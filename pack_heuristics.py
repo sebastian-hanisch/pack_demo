@@ -29,52 +29,84 @@ Alle drei geben (placements, unplaced) zurück:
 import heapq
 
 from pack_constants import BEAM_CANDIDATES_PER_STATE, BEAM_WIDTH, EPS
-from pack_geometry import any_overlap, box_rotations, fits_in_container
+from pack_geometry import any_overlap, box_rotations, fits_in_container, is_supported
+
+
+def _support_height_for_footprint(x, y, l, w, placed_pairs):
+    """Höchste Oberfläche unter dem angegebenen Fußabdruck (x,y,l,w) - die
+    Box muss mindestens auf dieser Höhe ruhen, um nicht zu überlappen.
+    Garantiert für sich allein noch KEINE volle Stützung (siehe
+    is_supported) - falls der Fußabdruck über Boxen unterschiedlicher Höhe
+    hinausragt, kann trotzdem eine Lücke bleiben, die is_supported()
+    zusätzlich prüft."""
+    max_h = 0.0
+    for (px, py, pz), (pl, pw, ph) in placed_pairs:
+        if px < x + l - EPS and px + pl > x + EPS and py < y + w - EPS and py + pw > y + EPS:
+            max_h = max(max_h, pz + ph)
+    return max_h
 
 
 def layer_based_packing(boxes, container_dim):
-    """Schichten-Heuristik: Boxen werden nach Höhe absteigend sortiert und in
-    Reihen/Schichten angeordnet - neue Reihe, wenn die Breite nicht mehr
-    reicht, neue Schicht, wenn die Tiefe nicht mehr reicht. Keine Rotation,
-    keine Lückenfüllung - bewusst die einfachste der drei Heuristiken."""
+    """Schichten-Heuristik: Boxen werden nach Höhe absteigend sortiert. Für
+    jede Box wird die "tiefste, hinterste, am weitesten links liegende"
+    Position über ein wachsendes Raster aus (x,y)-Kandidaten gesucht (Ecken
+    bereits platzierter Boxen in der Grundfläche) - keine Rotation, kein
+    3D-Extrempunkt-Verfahren wie bei Extreme-Point, nur ein einfaches
+    2D-Raster mit "auf das tatsächlich Vorhandene fallen lassen" für die
+    Höhe. Bewusst die einfachste der drei Heuristiken.
+
+    Auf Nutzerhinweis ergänzt ("Packstücke scheinen zu schweben"): zwei
+    frühere Fassungen hatten Probleme. Die erste nutzte einen einzelnen
+    globalen Höhen-Cursor (`z += layer_height`, Höhe der GRÖSSTEN Box einer
+    Reihe für ALLE Boxen dieser Reihe) - bei unterschiedlich hohen Boxen in
+    derselben Reihe reichten kleinere Boxen nicht bis zu dieser Höhe,
+    wodurch eine Box der nächsten Schicht über der Lücke schwebte. Ein
+    zweiter Versuch (feste (x,y)-Reihenfolge mit nur 3 Versuchen pro Box,
+    Höhe live berechnet) behob das Schweben, aber die Raumnutzung brach ein
+    (z. B. Seed 1: 25 auf 5 Boxen) - schlug eine Box an einer bestimmten
+    Position fehl, blieb der (x,y)-Cursor dort "stecken" und vergiftete
+    ALLE nachfolgenden Boxen (jede scheiterte an derselben Position, ohne
+    Möglichkeit, eine andere zu versuchen). Jetzt: robuste Suche über ein
+    wachsendes Kandidaten-Raster statt eines starren 3-Versuche-Cursors -
+    kann eine Box hier nicht platziert werden, bleibt der Rasterzustand für
+    die nächste Box unverändert (kein Steckenbleiben mehr möglich)."""
     CL, CW, CH = container_dim
     order = sorted(range(len(boxes)), key=lambda i: -boxes[i][2])
 
     placements = []
     unplaced = []
-    x = y = z = 0.0
-    row_depth = 0.0
-    layer_height = 0.0
+    x_edges = {0.0}
+    y_edges = {0.0}
 
     for idx in order:
         l, w, h = boxes[idx]
-        placed_this_box = False
-
-        # bis zu 3 Versuche: aktuelle Reihe -> neue Reihe -> neue Schicht
-        for _attempt in range(3):
-            if x + l <= CL + EPS and y + w <= CW + EPS and z + h <= CH + EPS:
-                placements.append({"pos": (x, y, z), "dim": (l, w, h), "box_idx": idx})
-                x += l
-                row_depth = max(row_depth, w)
-                layer_height = max(layer_height, h)
-                placed_this_box = True
-                break
-            if x + l > CL + EPS:
-                x = 0.0
-                y += row_depth
-                row_depth = 0.0
-                continue
+        placed_pairs = [(p["pos"], p["dim"]) for p in placements]
+        best = None
+        for y in sorted(y_edges):
             if y + w > CW + EPS:
-                x = 0.0
-                y = 0.0
-                z += layer_height
-                layer_height = 0.0
-                row_depth = 0.0
                 continue
-            break  # passt auch nach Schichtwechsel nicht (z. B. zu hoch)
+            for x in sorted(x_edges):
+                if x + l > CL + EPS:
+                    continue
+                actual_z = _support_height_for_footprint(x, y, l, w, placed_pairs)
+                if actual_z + h > CH + EPS:
+                    continue
+                if not is_supported((x, y, actual_z), (l, w, h), placed_pairs):
+                    continue
+                if any_overlap((x, y, actual_z), (l, w, h), placed_pairs):
+                    continue
+                key = (actual_z, y, x)  # unten/hinten/links bevorzugt, wie bei Extreme-Point
+                if best is None or key < best[0]:
+                    best = (key, x, y, actual_z)
 
-        if not placed_this_box:
+        if best is None:
             unplaced.append(idx)
+            continue
+
+        _, x, y, actual_z = best
+        placements.append({"pos": (x, y, actual_z), "dim": (l, w, h), "box_idx": idx})
+        x_edges.add(x + l)
+        y_edges.add(y + w)
 
     return placements, unplaced
 
@@ -103,6 +135,8 @@ def extreme_point_packing(boxes, container_dim):
                 if not fits_in_container(p, rd, container_dim_t):
                     continue
                 if any_overlap(p, rd, placed_boxes):
+                    continue
+                if not is_supported(p, rd, placed_boxes):
                     continue
                 key = (p[2], p[1], p[0])  # z, y, x - unten/hinten/links bevorzugt
                 if best is None or key < best[0]:
@@ -152,6 +186,8 @@ def beam_search_packing(boxes, container_dim, beam_width=BEAM_WIDTH, candidates_
                     if not fits_in_container(p, rd, container_dim):
                         continue
                     if any_overlap(p, rd, placed_pairs):
+                        continue
+                    if not is_supported(p, rd, placed_pairs):
                         continue
                     key = (p[2], p[1], p[0])  # unten/hinten/links bevorzugt
                     local_candidates.append((key, pi, p, rd))
@@ -221,6 +257,8 @@ def _try_place_one(box_dims, placed_pairs, container_dim):
             if not fits_in_container(p, rd, container_dim):
                 continue
             if any_overlap(p, rd, placed_pairs):
+                continue
+            if not is_supported(p, rd, placed_pairs):
                 continue
             key = (p[2], p[1], p[0])
             if best is None or key < best[0]:
@@ -391,6 +429,8 @@ def monobeam_packing(boxes, container_dim, beam_width=BEAM_WIDTH):
                         if not fits_in_container(p, rd, container_dim):
                             continue
                         if any_overlap(p, rd, placed_pairs):
+                            continue
+                        if not is_supported(p, rd, placed_pairs):
                             continue
                         found_any = True
                         new_placed = state["placed"] + [{"pos": p, "dim": rd, "box_idx": idx}]
