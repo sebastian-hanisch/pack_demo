@@ -336,6 +336,65 @@ nicht eingebaut; Button und Docstring korrekt auf "Greedy-Verbesserungssuche"
 umbenannt, mit Regressionstest (`test_rescue_button_not_mislabeled_as_beam_search`),
 der sicherstellt, dass "Beam" nicht wieder fälschlich im Button-Text auftaucht.
 
+## Zwei gemeldete Darstellungsfehler in der 3D-Ansicht
+
+### 1. Verzerrte Achsen bei nicht-würfelförmigen Containern
+
+Auf den Hinweis "sehr merkwürdige 3D-Darstellung des Containers" gefunden: alle drei
+Achsen (Länge, Breite, Höhe) bekamen denselben Wertebereich `[0, max(L,B,H)]` statt
+jeweils ihre eigene tatsächliche Ausdehnung - beim Standard-Container 120×80×100cm
+bekamen also Breite und Höhe beide den Bereich 0-120, obwohl sie nur 80 bzw. 100cm
+messen.
+
+**Warum das die Darstellung verzerrte:** Mit `aspectmode="data"` (bewusst gewählt,
+damit Boxen nicht optisch gestreckt wirken) leitet Plotly das Seitenverhältnis der
+3D-Szene direkt aus den angegebenen Achsenbereichen ab - bei drei identischen Bereichen
+erzwingt das einen würfelförmigen Anzeigerahmen. Der tatsächliche (nicht-würfelförmige)
+Container füllte darin nur einen Teil aus, mit auffälligem leerem Rand auf zwei Seiten
+statt eines vollständig ausgefüllten Quaders - bei stark länglichen Containern (z. B.
+70×60×50cm bei "Viele kleine Pakete") besonders deutlich sichtbar.
+
+**Fix:** jede Achse bekommt jetzt ihren eigenen Bereich (`xaxis: [0, Länge]`, `yaxis:
+[0, Breite]`, `zaxis: [0, Höhe]`) statt eines gemeinsamen, am größten Maß orientierten
+Bereichs. Verifiziert: das Container-Drahtgitter füllt jetzt exakt seinen eigenen
+Achsenbereich in allen drei Dimensionen, keine Verzerrung mehr.
+
+### 2. Nach innen zeigende Flächennormalen bei den Box-Meshes
+
+Auf Nachfrage präzisiert: eigentlich ging es um die Sichtbarkeit der Packstücke selbst
+aus verschiedenen Blickwinkeln, nicht die Container-Skalierung. Systematisch per
+Kreuzprodukt geprüft: **4 von 6 Seitenflächen** jedes Box-Meshs (unten, hinten, links)
+hatten eine nach INNEN statt nach AUSSEN zeigende Normale - nur 2 von 6 (oben, vorne)
+plus rechts (3 von 6 insgesamt) waren korrekt orientiert. Ursache: die
+Dreiecks-Eckpunktreihenfolge (`_BOX_TRIANGLES_I/J/K`) folgte für diese vier Flächen
+nicht der rechte-Hand-Regel für nach außen zeigende Normalen.
+
+**Warum das die Sichtbarkeit beeinträchtigte:** Mit `flatshading=True` hängt Plotlys
+Beleuchtungsberechnung direkt von der Normalenrichtung jeder Fläche ab - bei
+uneinheitlich orientierten Normalen können Flächen je nach Blickwinkel und
+Lichteinfall unsichtbar wirken oder falsch (zu dunkel/zu hell) schattiert erscheinen.
+Da 4 von 6 Flächen betroffen waren, hätte praktisch jede Kamera-Perspektive
+mindestens eine falsch wirkende Fläche gezeigt - passend zum gemeldeten Eindruck einer
+"merkwürdigen" Darstellung, die sich beim Rotieren der Ansicht nicht auflöste.
+
+**Wichtig - ein bereits bestehender Test (`test_box_mesh_triangles_cover_all_six_faces_exactly`)
+hatte das nicht erkannt:** er prüft nur, ob jede Fläche flächenmäßig korrekt (kein
+Loch, keine Überlappung) von 2 Dreiecken abgedeckt wird - das gilt unabhängig von der
+Wicklungsrichtung, da die Flächenberechnung den Betrag nimmt. Die Normalenrichtung
+selbst wurde nirgends geprüft. Ergänzt: `test_box_mesh_triangles_have_consistent_outward_normals`,
+das explizit das Kreuzprodukt jedes Dreiecks gegen die erwartete Flächen-Außennormale
+prüft - ein Beispiel dafür, dass geometrische Korrektheit mehrere unabhängige
+Eigenschaften hat (hier: Flächendeckung UND Orientierung), die jeweils eigene Tests
+brauchen.
+
+**Fix:** die Eckpunktreihenfolge der 4 betroffenen Flächen (8 der 12 Dreiecke) so
+vertauscht, dass alle 12 Dreiecke jetzt konsistent nach außen zeigen. Die abgedeckte
+Fläche je Seite bleibt dabei unverändert (nur die Wicklungsrichtung ändert sich, nicht
+die Position der Dreiecke) - verifiziert durch Neuberechnung der Flächensumme je Seite
+nach der Korrektur.
+`test_container_wireframe_matches_actual_dimensions_not_cube`,
+`test_container_wireframe_matches_dimensions_for_all_presets`.
+
 ## 1. Lokal ausführen
 
 ```bash
@@ -353,7 +412,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-74 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+77 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)

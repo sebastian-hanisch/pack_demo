@@ -14,10 +14,18 @@ from pack_constants import BOX_COLORS
 # Standard-Eckpunkt-Reihenfolge eines Quaders und seine 12 Dreiecke
 # (2 pro Seitenfläche × 6 Flächen) für go.Mesh3d. Geometrisch verifiziert
 # (siehe Testsuite): jede der 6 Flächen wird von genau 2 Dreiecken lückenlos
-# und ohne Überlappung abgedeckt.
+# und ohne Überlappung abgedeckt, UND alle 12 Dreiecke haben konsistent
+# nach AUSSEN zeigende Normalen (rechte-Hand-Regel bei der gewählten
+# Eckpunkt-Reihenfolge) - auf Nutzerhinweis ("Sichtbarkeit aus
+# verschiedenen Perspektiven") gefunden: die ursprüngliche Reihenfolge
+# hatte bei 4 von 6 Flächen (unten, hinten, links) nach INNEN zeigende
+# Normalen, nur 2 von 6 (oben, vorne, rechts eigentlich 3 von 6) waren
+# korrekt - je nach Blickwinkel und Beleuchtung/Rendering-Verhalten von
+# Plotly konnte das zu unsichtbaren oder falsch schattierten Flächen
+# führen. Siehe README für die Herleitung.
 _BOX_TRIANGLES_I = [0, 0, 4, 4, 0, 0, 3, 3, 0, 0, 1, 1]
-_BOX_TRIANGLES_J = [1, 2, 5, 6, 1, 5, 2, 6, 3, 7, 2, 6]
-_BOX_TRIANGLES_K = [2, 3, 6, 7, 5, 4, 6, 7, 7, 4, 6, 5]
+_BOX_TRIANGLES_J = [2, 3, 5, 6, 1, 5, 6, 7, 7, 4, 2, 6]
+_BOX_TRIANGLES_K = [1, 2, 6, 7, 5, 4, 2, 6, 3, 7, 6, 5]
 
 
 def _box_mesh_trace(pos, dim, color, name, opacity=0.85):
@@ -72,12 +80,11 @@ def build_3d_figure(placements_subset, boxes, ids, container_dim):
         fig.add_trace(_box_mesh_trace(entry["pos"], entry["dim"], color, label))
 
     CL, CW, CH = container_dim
-    max_dim = max(CL, CW, CH)
     fig.update_layout(
         scene=dict(
-            xaxis=dict(title="Länge (cm)", range=[0, max_dim]),
-            yaxis=dict(title="Breite (cm)", range=[0, max_dim]),
-            zaxis=dict(title="Höhe (cm)", range=[0, max_dim]),
+            xaxis=dict(title="Länge (cm)", range=[0, CL]),
+            yaxis=dict(title="Breite (cm)", range=[0, CW]),
+            zaxis=dict(title="Höhe (cm)", range=[0, CH]),
             aspectmode="data",
             camera=dict(eye=dict(x=1.5, y=-1.5, z=1.0)),
         ),

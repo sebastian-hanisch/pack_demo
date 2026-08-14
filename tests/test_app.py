@@ -524,6 +524,39 @@ def test_box_mesh_triangles_cover_all_six_faces_exactly():
         assert sum(areas) == pytest.approx(1.0), f"Fläche {face}: Gesamtfläche {sum(areas)} statt 1.0"
 
 
+def test_box_mesh_triangles_have_consistent_outward_normals():
+    """Regressionstest für einen vom Nutzer gemeldeten Fehler: die
+    Dreiecks-Reihenfolge deckte zwar alle 6 Flächen korrekt ab (siehe
+    test_box_mesh_triangles_cover_all_six_faces_exactly), aber 4 von 6
+    Flächen (unten, hinten, links) hatten eine nach INNEN statt nach AUSSEN
+    zeigende Normale (falsche Wicklungsreihenfolge / Eckpunkt-Richtung).
+    Das flächen-basierte Coverage-Kriterium allein prüft nur unsignierte
+    Fläche, nicht die Wicklungsrichtung - dieser Test prüft explizit die
+    Normalenrichtung jedes einzelnen Dreiecks per Kreuzprodukt (rechte-Hand-
+    Regel), da uneinheitliche Normalen je nach Beleuchtung/Rendering-
+    Verhalten zu unsichtbaren oder falsch schattierten Flächen aus
+    bestimmten Blickwinkeln führen können."""
+    import numpy as np
+
+    verts = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0), (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)]
+    face_names = ["unten", "unten", "oben", "oben", "vorne", "vorne", "hinten", "hinten", "links", "links", "rechts", "rechts"]
+    expected_normals = {
+        "unten": (0, 0, -1), "oben": (0, 0, 1), "vorne": (0, -1, 0),
+        "hinten": (0, 1, 0), "links": (-1, 0, 0), "rechts": (1, 0, 0),
+    }
+    triangles = list(zip(_BOX_TRIANGLES_I, _BOX_TRIANGLES_J, _BOX_TRIANGLES_K))
+
+    for idx, (i, j, k) in enumerate(triangles):
+        v0, v1, v2 = np.array(verts[i]), np.array(verts[j]), np.array(verts[k])
+        normal = np.cross(v1 - v0, v2 - v0)
+        normal_unit = normal / np.linalg.norm(normal)
+        expected = np.array(expected_normals[face_names[idx]])
+        assert np.dot(normal_unit, expected) > 0.9, (
+            f"Dreieck {idx} ({face_names[idx]}): Normale {normal_unit.round(2)} zeigt nicht nach "
+            f"außen (erwartet ~{expected})"
+        )
+
+
 def test_evaluate_packing_utilization_and_unplaced():
     boxes = _random_boxes(20, seed=1)
     container_dim = (120.0, 80.0, 100.0)
@@ -747,3 +780,47 @@ def test_rescue_result_becomes_stale_after_config_change():
     assert_ok(at)
     stale_notes = [str(c.value) for c in at.caption if "verworfen" in str(c.value)]
     assert stale_notes, "Erwarteter Stale-Hinweis nach Konfigurationsänderung fehlt"
+
+
+# --- 3D-Visualisierung: nicht-wuerfelfoermige Container ---
+# (auf Nutzerhinweis "sehr merkwuerdige 3D-Darstellung" gefunden und behoben)
+
+def test_container_wireframe_matches_actual_dimensions_not_cube():
+    """Regressionstest für einen vom Nutzer gemeldeten Fehler: alle drei
+    Achsen (Länge, Breite, Höhe) bekamen denselben Bereich [0, max(L,B,H)]
+    statt jeweils ihre eigene tatsächliche Ausdehnung. Bei einem nicht-
+    würfelförmigen Container (z. B. dem Standard 120×80×100) zwang das
+    Plotly mit aspectmode='data' zu einer würfelförmigen Anzeige, in der
+    der tatsächliche Container nur einen Teil einnahm - verzerrte,
+    unausgefüllte Darstellung mit viel leerem Rand auf zwei Seiten. Fix:
+    jede Achse bekommt ihren eigenen Bereich [0, jeweilige Kantenlänge]."""
+    from pack_visualization import build_3d_figure
+
+    container_dim = (120.0, 80.0, 100.0)  # bewusst nicht wuerfelfoermig
+    placements = [{"box_idx": 0, "pos": (0.0, 0.0, 0.0), "dim": (30.0, 30.0, 30.0)}]
+    fig = build_3d_figure(placements, [(30.0, 30.0, 30.0)], ["A"], container_dim)
+
+    scene = fig.layout.scene
+    assert tuple(scene.xaxis.range) == (0, 120.0)
+    assert tuple(scene.yaxis.range) == (0, 80.0)
+    assert tuple(scene.zaxis.range) == (0, 100.0)
+
+    wireframe = fig.data[0]
+    assert max(x for x in wireframe.x if x is not None) == 120.0
+    assert max(y for y in wireframe.y if y is not None) == 80.0
+    assert max(z for z in wireframe.z if z is not None) == 100.0
+
+
+def test_container_wireframe_matches_dimensions_for_all_presets():
+    """Erweiterte Prüfung über alle vier Presets (unterschiedliche
+    Container-Formen, inkl. dem stark nicht-würfelförmigen 70x60x50 von
+    'Viele kleine Pakete')."""
+    from pack_visualization import build_3d_figure
+
+    for container_dim in [(120.0, 80.0, 100.0), (70.0, 60.0, 50.0)]:
+        fig = build_3d_figure([], [], [], container_dim)
+        scene = fig.layout.scene
+        CL, CW, CH = container_dim
+        assert tuple(scene.xaxis.range) == (0, CL)
+        assert tuple(scene.yaxis.range) == (0, CW)
+        assert tuple(scene.zaxis.range) == (0, CH)
