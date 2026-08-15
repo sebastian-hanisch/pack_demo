@@ -17,8 +17,9 @@ import streamlit as st
 from pack_evaluation import box_volume, volume_to_business
 from pack_feedback import log_feedback
 from pack_heuristics import extreme_point_packing, layer_based_packing, monobeam_packing
-from pack_presets import apply_preset, bounds, init_session_state_defaults, load_permalink_settings, sync_query_params
+from pack_presets import apply_preset, bounds, init_session_state_defaults, load_permalink_settings, randomize_seed, sync_query_params
 from pack_ui_panel import render_packing_panel
+from pack_visualization import build_3d_figure
 
 st.set_page_config(page_title="3D-Packungsoptimierung – Sebastian Hanisch", layout="wide")
 
@@ -89,7 +90,11 @@ with st.sidebar:
         help="Geschätzte Kosten, falls nicht alle Boxen in einen Container passen und ein weiterer nötig wird.",
     )
 
-    regenerate = st.button("🔄 Neue Boxen generieren", use_container_width=True)
+    st.button(
+        "🎲 Neue Boxen generieren", use_container_width=True, on_click=randomize_seed,
+        help="Würfelt einen neuen Zufalls-Seed und erzeugt damit komplett neue Boxen - "
+        "praktisch, ohne selbst eine neue Seed-Zahl eintippen zu müssen.",
+    )
 
 sync_query_params(container_l, container_w, container_h, n_boxes, min_size, max_size, seed, cost_per_container)
 
@@ -103,7 +108,7 @@ if "force_regen" not in st.session_state:
 # funktional falsch. Siehe test_all_generation_params_trigger_regeneration.)
 gen_key = (n_boxes, min_size, max_size, int(seed))
 needs_init = (
-    "boxes" not in st.session_state or regenerate or st.session_state.force_regen
+    "boxes" not in st.session_state or st.session_state.force_regen
     or st.session_state.get("gen_key_cache") != gen_key
 )
 if needs_init:
@@ -215,6 +220,15 @@ with tabs[len(METHODS)]:
                 f"**{containers_saved} zusätzliche(n) Container** (~{cost_saved:.0f} €) – bei einer "
                 f"einzelnen Beladung. Hochgerechnet auf regelmäßige Sendungen summiert sich das schnell."
             )
+
+    st.markdown("**Finale Packungen im direkten Vergleich**")
+    cols = st.columns(len(candidates))
+    for col, s in zip(cols, candidates):
+        with col:
+            st.caption(f"{s['label']} (final, {s['final_utilization_pct']:.1f}%)")
+            fig_c = build_3d_figure(s["placements"], boxes, ids, container_dim)
+            st.plotly_chart(fig_c, use_container_width=True, key=f"compare_{s['label']}")
+
 
 with st.expander("Wie funktioniert diese Demo?"):
     st.markdown(

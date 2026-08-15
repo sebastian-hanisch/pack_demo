@@ -52,9 +52,16 @@ def test_presets_apply_without_crash(label):
 
 
 def test_regenerate_button():
+    """Verstärkt auf Nutzerhinweis: prüfte zuvor nur 'kein Absturz', nicht
+    die tatsächliche Wirkung - genau die Art Test, die den ursprünglichen
+    Fehler (Button ohne Effekt bei unverändertem Seed, siehe
+    randomize_seed-Docstring in pack_presets.py) nicht erkannt hätte."""
     at = fresh_app()
+    seed_before = at.sidebar.number_input(key="seed_input").value
     at.sidebar.button[0].click().run(timeout=TIMEOUT)
     assert_ok(at)
+    seed_after = at.sidebar.number_input(key="seed_input").value
+    assert seed_after != seed_before, "Seed hat sich durch den Klick nicht geändert"
 
 
 @pytest.mark.parametrize("slider_idx,value", [(0, 300), (0, 50), (3, 60), (3, 5)])
@@ -1015,3 +1022,15 @@ def test_contact_area_partial_contact_with_neighbor():
     # Box direkt daneben (rechte Seite von neighbor beruehrt linke Seite dieser Box)
     area = contact_area((10, 0, 0), (10, 10, 10), neighbor, (120, 80, 100))
     assert area >= 100.0  # mindestens die linke Wand (10x10) plus Boden
+
+
+def test_comparison_tab_shows_final_packings_side_by_side():
+    """Auf Nutzerwunsch ergänzt (analog zur bereits bestehenden Funktion in
+    der VRP-Demo): der Vergleichs-Tab zeigt jetzt für jede der drei
+    Heuristiken die finale Packung als eigene 3D-Ansicht nebeneinander,
+    nicht nur die numerische Vergleichstabelle."""
+    at = fresh_app()
+    captions = [str(c.value) for c in at.caption if "(final," in str(c.value)]
+    assert len(captions) == 3, f"Erwartete 3 Beschriftungen für die finalen Packungen, gefunden: {captions}"
+    for label in ["Schichten-basiert", "Extreme-Point", "Beam Search"]:
+        assert any(label in c for c in captions), f"Beschriftung für {label} fehlt"

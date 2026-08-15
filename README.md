@@ -659,6 +659,54 @@ Konfigurationen mit >1 Prozentpunkt Vorsprung gefunden). Auf n=30, Größe 8-70c
 jeder Seed einen sauberen Gleichstand (44 von 49 getesteten) statt nur einem einzelnen
 sorgfältig gesuchten - auf den einfachsten verfügbaren Seed (1) vereinfacht.
 
+## Auf Nutzerwunsch ergänzt: finale Packungen nebeneinander im Vergleichs-Tab
+
+Die VRP-Demo zeigt im Vergleichs-Tab bereits die finalen Touren aller Methoden
+nebeneinander (eigene kleine Karte je Methode) - dieselbe Idee auf Pack übertragen.
+Jede der drei Heuristiken bekommt jetzt eine eigene 3D-Ansicht ihrer finalen Packung
+(inklusive einer eventuellen Rettungssuche, falls durchgeführt) direkt nebeneinander,
+mit Raumnutzung in der Beschriftung - zusätzlich zur bereits vorhandenen numerischen
+Tabelle.
+
+Technisch unkompliziert: `render_packing_panel` gab die finalen `placements` bereits im
+zurückgegebenen Summary-Dict zurück (inklusive einer eventuellen Rettungssuche, da die
+lokale `placements`-Variable innerhalb der Funktion bei erfolgreicher Rettung
+überschrieben wird, bevor sie zurückgegeben wird) - nur `build_3d_figure` musste in
+`app.py` importiert und mit `st.columns()` aufgerufen werden, exakt nach demselben
+Muster wie in der VRP-Demo.
+`test_comparison_tab_shows_final_packings_side_by_side`.
+
+## Vom Nutzer gemeldet: "Neue Boxen generieren" tat bei unverändertem Seed nichts
+
+Im Zuge einer Konsistenzprüfung über alle vier Demos gefunden (identischer Fehler auch
+in der Tourenplanung-Demo, dort zuerst gefunden und behoben - siehe dortiges README für
+die volle Herleitung): der Button rief nur ein normales `st.button()` auf. Sein Wert
+floss zwar in die Neuberechnungs-Bedingung ein (`regenerate or force_regen`), aber die
+automatische Neugenerierung reagiert bereits auf jede Änderung von Parametern oder Seed
+- blieb der Seed unverändert, lieferte die deterministische Zufallserzeugung dieselben
+Werte erneut. Ein Klick löste zwar technisch eine Neuberechnung aus, das Ergebnis war
+aber identisch - für den Nutzer sichtbar ein reiner Leerlauf-Klick.
+
+**Der bestehende Test hatte diese Lücke nicht erkannt:** `test_regenerate_button` prüfte
+nur "kein Absturz", nie die tatsächliche Wirkung. Auf echte Wirkungsprüfung umgestellt
+(Seed muss sich nach dem Klick unterscheiden).
+
+**Fix, kein ersatzloses Entfernen:** statt den wirkungslosen Button zu streichen, bekam
+er eine echte Funktion - er würfelt jetzt einen neuen Zufalls-Seed (`randomize_seed()`
+in `pack_presets.py`, nach demselben `on_click`-Callback-Muster wie `apply_preset`). Ein
+Klick liefert garantiert neue Boxen, ohne selbst eine neue Seed-Zahl eintippen zu
+müssen.
+
+**Bei der Verifikation ein Fehlalarm im eigenen Testskript, kein App-Fehler:** ein
+Skript, das denselben (veralteten) Python-Objektverweis auf den Button zweimal in Folge
+anklickte, ohne ihn zwischen den Klicks über `at.button` neu zu holen, löste einen
+`KeyError` in Streamlits Test-Framework aus (`layer_step` nicht initialisiert). Mit
+korrekt bei jedem Klick neu geholter Button-Referenz (wie ein echter Nutzer das erlebt,
+der immer ein frisch gerendertes Element anklickt) traten über 15 aufeinanderfolgende
+Klicks keinerlei Probleme auf - ein Artefakt der Testmethodik, keine echte
+Anwendungsschwäche.
+`test_regenerate_button` (verstärkt).
+
 ## 1. Lokal ausführen
 
 ```bash
@@ -676,7 +724,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-94 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+95 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)

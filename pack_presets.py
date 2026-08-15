@@ -8,6 +8,7 @@ Slider-Grenzen).
 """
 
 import math
+import random
 from dataclasses import dataclass
 from typing import Callable, Optional
 
@@ -50,6 +51,21 @@ def apply_preset(n_boxes_val, min_size_val, max_size_val, cl_val, cw_val, ch_val
     st.session_state["container_w_slider"] = cw_val
     st.session_state["container_h_slider"] = ch_val
     st.session_state["seed_input"] = seed_val
+    st.session_state["force_regen"] = True
+
+
+def randomize_seed():
+    """on_click-Callback für den 'Neue Boxen generieren'-Button.
+
+    Auf Nutzerhinweis korrigiert (identischer Fehler wie beim analogen VRP-,
+    Fracht- und Transit-Button, siehe dortige Historie): der Button rief
+    zuvor nur ein normales st.button() auf, dessen Wert zwar in die
+    gen_key-Neuberechnung einfloss, aber bei UNVERÄNDERTEM Seed erzeugt die
+    deterministische Zufallserzeugung dieselben Werte erneut - ein Klick
+    bewirkte sichtbar GAR NICHTS, wenn man nicht zusätzlich selbst eine
+    neue Seed-Zahl eintippte. Jetzt würfelt der Klick selbst einen neuen,
+    zufälligen Seed - ein Klick liefert garantiert neue Boxen."""
+    st.session_state["seed_input"] = random.randint(0, 2_000_000_000)
     st.session_state["force_regen"] = True
 
 
