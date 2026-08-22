@@ -288,6 +288,106 @@ das Grundprinzip aus Konstruktion und Bewertung bleibt aber dasselbe.
 """
     )
 
+with st.expander("📐 Mathematische Formulierung"):
+    st.markdown(
+        r"""
+**Gegeben:**
+
+- Boxen $I = \{1,\dots,n\}$, jede mit Kantenlängen $(l_i, w_i, h_i) > 0$
+- ein Container mit festen Maßen $L, W, H > 0$
+- je Box die Menge $R(i)$ ihrer zulässigen achsparallelen Rotationen - Permutationen von
+  $(l_i,w_i,h_i)$, bei Schichten-basiert nur die Ausgangsausrichtung ($|R(i)|=1$), sonst
+  bis zu 6 (`box_rotations()`, Duplikate bei gleich langen Kanten entfernt)
+
+**Gesucht:** eine Teilmenge $S \subseteq I$ der platzierten Boxen, für jede $i \in S$ eine
+Rotation $r_i \in R(i)$ mit resultierenden Kantenlängen $(l_i^{r_i}, w_i^{r_i}, h_i^{r_i})$
+und eine Position $(x_i,y_i,z_i) \geq 0$, sodass jede Box vollständig im Container liegt,
+keine zwei platzierten Boxen überlappen, und jede Box entweder auf dem Containerboden
+($z_i=0$) oder vollständig (nicht nur teilweise) von den Deckflächen bereits platzierter
+Boxen auf Höhe $z_i$ getragen wird - keine "schwebenden" Boxen, siehe Abschnitt "Ein
+gefundener Bug" im README - bei maximalem platziertem Volumen:
+"""
+    )
+    st.latex(
+        r"\max_{S,\,r,\,x,y,z} \; \sum_{i \in S} l_i^{r_i}\, w_i^{r_i}\, h_i^{r_i}"
+    )
+    st.markdown(
+        r"""
+Als binäres Programm mit Auswahlvariablen $s_i \in \{0,1\}$ (= 1, wenn Box $i$ platziert
+wird), Rotationsvariablen $\rho_{ik} \in \{0,1\}$ für $k \in R(i)$ (= 1, wenn Box $i$ in
+Rotation $k$ platziert wird) und, für je zwei Boxen $i \neq j$, sechs binären
+Trennrichtungs-Variablen $\sigma_{ij}^{+x}, \sigma_{ij}^{-x}, \sigma_{ij}^{+y},
+\sigma_{ij}^{-y}, \sigma_{ij}^{+z}, \sigma_{ij}^{-z}$ (= 1, wenn $i$ auf der jeweiligen
+Achse vollständig auf einer Seite von $j$ liegt) - die gebräuchliche disjunktive Form für
+Packungs-MILPs, linearisiert über eine hinreichend große Konstante $M$ (Chen, Lee & Shen
+1995, "An analytical model for the container loading problem"):
+"""
+    )
+    st.latex(
+        r"\max \; \sum_{i=1}^{n} s_i \sum_{k \in R(i)} \rho_{ik}\, l_i^k w_i^k h_i^k "
+        r"\qquad \text{u. d. N.} \quad \sum_{k \in R(i)} \rho_{ik} = s_i \;\; \forall i"
+    )
+    st.latex(
+        r"x_i + l_i^k \leq L,\;\; y_i + w_i^k \leq W,\;\; z_i + h_i^k \leq H "
+        r"\qquad \text{falls } \rho_{ik}=1"
+    )
+    st.latex(
+        r"\sigma_{ij}^{+x}+\sigma_{ij}^{-x}+\sigma_{ij}^{+y}+\sigma_{ij}^{-y}"
+        r"+\sigma_{ij}^{+z}+\sigma_{ij}^{-z} \;\geq\; s_i+s_j-1 \qquad \forall i \neq j"
+    )
+    st.latex(
+        r"x_i + l_i \leq x_j + M(1-\sigma_{ij}^{+x}) \qquad \text{(analog für die "
+        r"übrigen fünf Trennrichtungen)}"
+    )
+    st.markdown(
+        r"""
+Die Stützungs-Nebenbedingung (keine schwebenden Boxen) ist oben bewusst NICHT
+mitlinearisiert - sie ist keine Standard-Nebenbedingung der klassischen
+Container-Loading-Literatur, sondern eine physikalische Realitäts-Ergänzung dieser Demo
+(siehe README), deren exakte Formulierung eine 2D-Flächendeckungsbedingung pro Box wäre
+(jeder Punkt der Grundfläche muss von der Vereinigung der Deckflächen tragender Boxen
+überdeckt sein) - im Code direkt als `is_supported()` geprüft statt aufwendig linearisiert,
+da ohnehin keine der drei Heuristiken dieses Programm tatsächlich löst (siehe unten).
+
+**Warum NP-schwer:** Beschränkt auf Boxen mit $w_i = h_i = 1$ und einen Container
+$(L, 1, 1)$ reduziert sich das Problem exakt auf die Wahl einer Teilmenge $S \subseteq I$
+mit $\sum_{i \in S} l_i \leq L$, die das platzierte Volumen $\sum_{i \in S} l_i$
+maximiert - das klassische **0/1-Rucksackproblem** (Karp 1972; schwach NP-schwer, mit
+pseudopolynomieller DP in $O(nL)$ lösbar, aber NP-schwer für in $n$ polynomiell
+beschränkte Bitlängen der $l_i$, siehe Garey & Johnson 1979). Da dieser Spezialfall
+bereits NP-schwer ist, ist auch die allgemeine 3D-Variante (beliebige Boxgrößen, bis zu
+sechs Rotationen, geometrische statt reiner Kapazitätsnebenbedingung, plus
+Stützungsbedingung) NP-schwer - eine Reduktion, kein bloßes Analogieargument.
+
+**Was die drei Heuristiken tatsächlich lösen:** Keine stellt dieses Programm auf - alle
+drei sind gierige Konstruktionsverfahren ohne Rückwärtssuche. Für **Schichten-basiert**
+ist kein Worst-Case-Gütegarantie bekannt (bewusst als einfache, intuitive Baseline
+gedacht, nicht als konkurrenzfähige Heuristik). Für **Extreme-Point** (Crainic, Perboli &
+Tadei 2008, "Extreme Point-Based Heuristics for Three-Dimensional Bin Packing") gilt
+dasselbe - in der Literatur werden Extreme-Point-Verfahren empirisch statt über eine
+bewiesene Worst-Case-Schranke bewertet, hier ebenso (siehe Benchmark-Abschnitt im
+README). Eine erfundene Gütegarantie ohne Beleg wäre unehrlich - keine wird hier
+behauptet.
+
+**Beam Search / monobeam_packing** ist die einzige der drei mit einer tatsächlich
+bewiesenen (und über eine breite Stichprobe getesteten) Eigenschaft: für Beam-Breiten
+$b_1 \leq b_2$ gilt
+"""
+    )
+    st.latex(r"\mathrm{vol}\big(\mathrm{monobeam}(b_1)\big) \;\leq\; \mathrm{vol}\big(\mathrm{monobeam}(b_2)\big)")
+    st.markdown(
+        r"""
+(Lemons, Linares López, Holte & Ruml 2022, "Beam Search: Faster and Monotonic") - eine
+größere Breite kann die Raumnutzung nachweislich nie verschlechtern. Da Breite 1 exakt
+derselben Positionswahl-Regel wie Extreme-Point folgt (byte-identisch verifiziert, siehe
+README), folgt aus dieser Monotonie zusätzlich: monobeam kann bei keiner Breite mehr
+schlechter als Extreme-Point sein. Auch dies ist eine bewiesene *strukturelle*
+Eigenschaft des Verfahrens (nie schlechter als eine bestimmte andere Heuristik bei
+wachsender Breite) - keine Worst-Case-Schranke gegen die tatsächliche Optimallösung des
+Programms oben, die bleibt für alle drei Heuristiken offen.
+"""
+    )
+
 st.markdown("---")
 
 st.markdown("#### War diese Demo hilfreich für Sie?")
