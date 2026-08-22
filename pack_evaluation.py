@@ -46,3 +46,31 @@ def volume_to_business(unplaced_volume, container_volume, cost_per_container=DEF
     extra_containers = estimate_extra_containers(unplaced_volume, container_volume)
     extra_cost = extra_containers * cost_per_container
     return extra_containers, extra_cost
+
+
+def classify_comparison(candidates, tie_threshold_pct=0.05):
+    """Bestimmt aus den Endergebnissen mehrerer Heuristiken (je ein Dict mit
+    mindestens "label" und "final_utilization_pct"), ob es einen eindeutigen
+    Sieger gibt oder ob (alle, oder nur die besten zwei) praktisch gleichauf
+    liegen. Als eigene reine Funktion ausgelagert, damit sich diese Logik ohne
+    die volle Streamlit-App testen lässt.
+
+    Bug gefunden und behoben: eine erste Fassung prüfte nur, ob ALLE
+    Kandidaten innerhalb der Toleranz liegen (all_tied) - max()/min() lieferten
+    bei einem Gleichstand zwischen genau den besten ZWEI von drei Methoden
+    weiterhin willkürlich den ERSTEN der beiden gleichauf liegenden Kandidaten
+    als "Sieger", solange die dritte Methode klar genug abwich, um all_tied
+    auf False zu halten. Jetzt wird zusätzlich der Abstand zwischen dem besten
+    und dem zweitbesten Kandidaten unabhängig vom Rest geprüft."""
+    ranked = sorted(candidates, key=lambda s: s["final_utilization_pct"], reverse=True)
+    utilizations = [s["final_utilization_pct"] for s in candidates]
+    all_tied = (max(utilizations) - min(utilizations)) < tie_threshold_pct
+    top_two_tied = len(ranked) >= 2 and (ranked[0]["final_utilization_pct"] - ranked[1]["final_utilization_pct"]) < tie_threshold_pct
+    return {
+        "ranked": ranked,
+        "best": ranked[0],
+        "worst": ranked[-1],
+        "all_tied": all_tied,
+        "top_two_tied": top_two_tied,
+        "is_tied": all_tied or top_two_tied,
+    }

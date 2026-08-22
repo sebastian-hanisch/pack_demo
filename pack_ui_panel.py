@@ -16,6 +16,14 @@ from pack_pdf_export import generate_pack_plan_pdf
 from pack_visualization import build_3d_figure
 
 
+@st.cache_data(show_spinner=False)
+def _cached_pdf(label, placements, boxes, ids, unplaced, container_dim, cost_per_container):
+    """Cacht den PDF-Export über seine Eingaben - ohne das würde für alle
+    drei Tabs bei JEDEM Rerun ein komplettes PDF neu gebaut, auch wenn
+    niemand den Download-Button anklickt."""
+    return generate_pack_plan_pdf(label, placements, boxes, ids, unplaced, container_dim, cost_per_container)
+
+
 def render_packing_panel(prefix, label, placements, unplaced, boxes, ids, container_dim, cost_per_container):
     n_placed = len(placements)
     n_total = len(boxes)
@@ -101,13 +109,24 @@ def render_packing_panel(prefix, label, placements, unplaced, boxes, ids, contai
     plot_slot = st.empty()
     plot_slot.plotly_chart(fig, use_container_width=True, key=f"{prefix}_plot_{step}")
 
-    if auto_play:
+    # Bug gefunden und behoben: app.py rendert alle drei Methoden-Tabs bei
+    # JEDEM Rerun (Streamlit-Tabs sind nicht "lazy"), nicht nur den gerade
+    # sichtbaren. Ohne diese Sperre spielte eine angehakte Checkbox in einem
+    # Tab die komplette (blockierende) Animation bei JEDEM Rerun erneut ab -
+    # auch wenn ein völlig anderer Tab/Widget den Rerun ausgelöst hat, was
+    # die ganze UI unsichtbar für bis zu n_placed*0.15s einfrieren ließ. Jetzt
+    # spielt ein Ankreuzen genau einmal ab; erneutes Abspielen erfordert
+    # Ab- und wieder Anhaken.
+    if auto_play and not st.session_state.get(f"{prefix}_auto_played"):
         for s in range(n_placed + 1):
             f = build_3d_figure(placements[:s], boxes, ids, container_dim)
             plot_slot.plotly_chart(f, use_container_width=True, key=f"{prefix}_auto_{s}")
             time.sleep(0.15)
+        st.session_state[f"{prefix}_auto_played"] = True
+    elif not auto_play:
+        st.session_state[f"{prefix}_auto_played"] = False
 
-    pdf_bytes = generate_pack_plan_pdf(label, placements, boxes, ids, unplaced, container_dim, cost_per_container)
+    pdf_bytes = _cached_pdf(label, placements, boxes, ids, unplaced, container_dim, cost_per_container)
     st.download_button(
         "📄 Packplan als PDF herunterladen", data=pdf_bytes,
         file_name=f"packplan_{prefix}.pdf", mime="application/pdf", key=f"{prefix}_pdf_download",

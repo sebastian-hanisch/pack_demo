@@ -199,8 +199,12 @@ der mit der alten Implementierung erzielten 82,7 %.
 **Trotzdem als neuer Standard übernommen** (auf ausdrücklichen Wunsch: im Schnitt
 besser und vorhersagbar gut wiegt schwerer als ein gelegentlich höherer, aber
 unvorhersehbarer Einzelwert) - `app.py` nutzt jetzt durchgehend `monobeam_packing`
-statt `beam_search_packing`. Die alte Funktion bleibt vollständig getestet im Code
-(`beam_search_packing` in `pack_heuristics.py`), ist aber nicht mehr verdrahtet.
+statt `beam_search_packing`. Die alte Funktion wurde zunächst absichtlich als
+vollständig getestete Vergleichs-Baseline im Code belassen, ist inzwischen aber - nach
+einer Konsistenzprüfung, die auffiel, dass die Testabdeckung dafür nicht mehr aktuell
+war - ganz entfernt worden. Ihr Verhalten bleibt hier und in den Abschnitten oben
+vollständig dokumentiert; die Implementierung selbst ist über die Git-Historie
+abrufbar.
 
 **Neues "Enges Puzzle"-Szenario, für monobeam gefunden:** dieselbe systematische Suche
 wie zuvor (jetzt gegen monobeam statt die alte Implementierung), zusätzlich gefiltert

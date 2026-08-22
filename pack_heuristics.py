@@ -12,14 +12,14 @@ Drei selbst implementierte Heuristiken für das 3D-Bin-Packing-Problem
   großen Boxen gezielter. In der Regel deutlich bessere Raumnutzung als die
   Baseline, kostet aber mehr Rechenzeit.
 
-- beam_search_packing: verfolgt mehrere Teil-Packungen parallel (wie die
-  Beam-Search-Heuristik in der Tourenplanung-Demo). Bei jeder Box werden pro
-  Teilzustand mehrere Kandidaten erzeugt statt nur der eine beste; die
-  insgesamt besten Teilzustände werden weiterverfolgt. Im Benchmark im
-  Schnitt +0,9 Prozentpunkte Raumnutzung gegenüber Extreme-Point, bei dicht
-  gepackten Instanzen teils deutlich mehr - bei großen, dünn besiedelten
-  Containern dagegen manchmal exakt keine Verbesserung, obwohl 6-7x langsamer
-  (siehe README für die vollständige, ehrlich dokumentierte Abwägung).
+- monobeam_packing: Monobeam-Adaption (Lemons, Linares López, Holte & Ruml,
+  "Beam Search: Faster and Monotonic", ICAPS 2022) - verfolgt mehrere
+  Teil-Packungen parallel, mit der bewiesenen Garantie, dass eine größere
+  Beam-Breite die Raumnutzung nie verschlechtern kann (siehe Docstring der
+  Funktion für die ausführliche Herleitung). Löste eine frühere, nicht
+  monotone beam_search_packing-Implementierung ab, die auf ausdrücklichen
+  Wunsch inzwischen ganz aus dem Code entfernt wurde - ihr Verhalten und die
+  Gründe für die Ablösung sind im README dokumentiert.
 
 Alle drei geben (placements, unplaced) zurück:
 - placements: Liste von Dicts {"pos": (x,y,z), "dim": (l,w,h), "box_idx": i}
@@ -28,7 +28,7 @@ Alle drei geben (placements, unplaced) zurück:
 
 import heapq
 
-from pack_constants import BEAM_CANDIDATES_PER_STATE, BEAM_WIDTH, EPS
+from pack_constants import BEAM_WIDTH, EPS
 from pack_geometry import any_overlap, box_rotations, fits_in_container, is_supported
 
 
@@ -111,6 +111,51 @@ def layer_based_packing(boxes, container_dim):
     return placements, unplaced
 
 
+def _best_placement(points, dims, placed_pairs, container_dim):
+    """Sucht über alle Kandidatenpunkte und alle Rotationen einer Box die
+    "tiefste, hinterste, am weitesten linke" (DBL) zulässige Platzierung.
+    Gibt (key, point_index, pos, dim) der besten gefundenen Platzierung
+    zurück, oder None. War zuvor identisch dupliziert in extreme_point_packing
+    und _try_place_one - hier zusammengeführt.
+
+    NICHT für monobeam_packing verwendet: die braucht pro Box mehrere
+    Kandidaten (nicht nur den einen besten) und ein zusätzliches, fein
+    austariertes Tie-Break über eine Erzeugungsreihenfolge, an dem die
+    dokumentierte Monotonie-Garantie hängt (siehe dessen Docstring) - eine
+    gemeinsame Schleife dafür wäre kein reines Zusammenführen von Duplikat
+    mehr, sondern ein Umbau mit echtem Risiko für diese Garantie, deshalb
+    bewusst nicht angefasst."""
+    best = None
+    for pi, p in enumerate(points):
+        for rd in box_rotations(*dims):
+            if not fits_in_container(p, rd, container_dim):
+                continue
+            if any_overlap(p, rd, placed_pairs):
+                continue
+            if not is_supported(p, rd, placed_pairs):
+                continue
+            key = (p[2], p[1], p[0])  # z, y, x - unten/hinten/links bevorzugt
+            if best is None or key < best[0]:
+                best = (key, pi, p, rd)
+    return best
+
+
+def _new_extreme_points(pos, dim, existing_points):
+    """Leitet aus den drei "fernen" Ecken einer neu platzierten Box neue
+    Kandidatenpunkte ab und hängt noch nicht vorhandene an eine NEUE Liste an
+    - verändert existing_points nicht, wichtig für monobeam_packing, wo
+    derselbe points-Zustand von mehreren Nachfolgezuständen aus verzweigt
+    wird. War zuvor identisch dupliziert in extreme_point_packing und
+    monobeam_packing - hier zusammengeführt."""
+    x, y, z = pos
+    dx, dy, dz = dim
+    new_points = list(existing_points)
+    for candidate in [(x + dx, y, z), (x, y + dy, z), (x, y, z + dz)]:
+        if candidate not in new_points:
+            new_points.append(candidate)
+    return new_points
+
+
 def extreme_point_packing(boxes, container_dim):
     """Extreme-Point-Heuristik: hält eine Liste von Kandidatenpunkten, an
     denen die nächste Box platziert werden könnte. Für jede Box (nach Volumen
@@ -129,18 +174,7 @@ def extreme_point_packing(boxes, container_dim):
 
     for idx in order:
         dims = boxes[idx]
-        best = None  # (sort_key, point_index, pos, dim)
-        for pi, p in enumerate(points):
-            for rd in box_rotations(*dims):
-                if not fits_in_container(p, rd, container_dim_t):
-                    continue
-                if any_overlap(p, rd, placed_boxes):
-                    continue
-                if not is_supported(p, rd, placed_boxes):
-                    continue
-                key = (p[2], p[1], p[0])  # z, y, x - unten/hinten/links bevorzugt
-                if best is None or key < best[0]:
-                    best = (key, pi, p, rd)
+        best = _best_placement(points, dims, placed_boxes, container_dim_t)
 
         if best is None:
             unplaced.append(idx)
@@ -150,82 +184,9 @@ def extreme_point_packing(boxes, container_dim):
         placed_boxes.append((pos, rd))
         placements.append({"pos": pos, "dim": rd, "box_idx": idx})
         points.pop(pi)
-
-        x, y, z = pos
-        dx, dy, dz = rd
-        for candidate in [(x + dx, y, z), (x, y + dy, z), (x, y, z + dz)]:
-            if candidate not in points:
-                points.append(candidate)
+        points = _new_extreme_points(pos, rd, points)
 
     return placements, unplaced
-
-
-def beam_search_packing(boxes, container_dim, beam_width=BEAM_WIDTH, candidates_per_state=BEAM_CANDIDATES_PER_STATE):
-    """Beam Search: verfolgt mehrere Teil-Packungen parallel statt nur einer
-    (wie Extreme-Point). Feste Box-Reihenfolge (nach Volumen absteigend, wie
-    bei Extreme-Point) - der Suchraum liegt darin, WELCHE Position/Rotation
-    pro Box gewählt wird, nicht in welcher Reihenfolge Boxen platziert
-    werden. Pro Teilzustand werden die `candidates_per_state` besten
-    Positionen erzeugt (statt nur der einen besten); die insgesamt
-    `beam_width` besten neuen Teilzustände - zuerst nach Anzahl platzierter
-    Boxen, dann nach Kompaktheit (niedrigste erreichte Höhe) - werden
-    weiterverfolgt."""
-    order = sorted(range(len(boxes)), key=lambda i: -(boxes[i][0] * boxes[i][1] * boxes[i][2]))
-
-    init_state = {"placed": [], "points": [(0.0, 0.0, 0.0)], "unplaced": [], "max_z": 0.0}
-    beam = [init_state]
-
-    for idx in order:
-        dims = boxes[idx]
-        all_candidates = []
-        for state in beam:
-            placed_pairs = [(p["pos"], p["dim"]) for p in state["placed"]]
-            local_candidates = []
-            for pi, p in enumerate(state["points"]):
-                for rd in box_rotations(*dims):
-                    if not fits_in_container(p, rd, container_dim):
-                        continue
-                    if any_overlap(p, rd, placed_pairs):
-                        continue
-                    if not is_supported(p, rd, placed_pairs):
-                        continue
-                    key = (p[2], p[1], p[0])  # unten/hinten/links bevorzugt
-                    local_candidates.append((key, pi, p, rd))
-            local_candidates.sort(key=lambda c: c[0])
-
-            if not local_candidates:
-                all_candidates.append({
-                    "placed": state["placed"], "points": state["points"],
-                    "unplaced": state["unplaced"] + [idx], "max_z": state["max_z"],
-                })
-                continue
-
-            for key, pi, p, rd in local_candidates[:candidates_per_state]:
-                new_placed = state["placed"] + [{"pos": p, "dim": rd, "box_idx": idx}]
-                new_points = state["points"][:pi] + state["points"][pi + 1:]
-                x, y, z = p
-                dx, dy, dz = rd
-                for cand_pt in [(x + dx, y, z), (x, y + dy, z), (x, y, z + dz)]:
-                    if cand_pt not in new_points:
-                        new_points = new_points + [cand_pt]
-                all_candidates.append({
-                    "placed": new_placed, "points": new_points,
-                    "unplaced": state["unplaced"], "max_z": max(state["max_z"], z + dz),
-                })
-
-        all_candidates.sort(key=lambda c: (-len(c["placed"]), c["max_z"]))
-        # Deduplizieren: identische Nachfolgezustände nicht mehrfach im Beam behalten
-        seen = set()
-        deduped = []
-        for c in all_candidates:
-            fingerprint = tuple(sorted((p["box_idx"], p["pos"], p["dim"]) for p in c["placed"]))
-            if fingerprint not in seen:
-                seen.add(fingerprint)
-                deduped.append(c)
-        beam = deduped[:beam_width]
-
-    best = max(beam, key=lambda c: len(c["placed"]))
-    return best["placed"], best["unplaced"]
 
 
 def _candidate_points_for(placed_pairs):
@@ -251,19 +212,8 @@ def _try_place_one(box_dims, placed_pairs, container_dim):
     bereits platzierter (pos, dim)-Paare) einzufügen. Gibt (pos, dim) der
     besten zulässigen Platzierung zurück, oder None."""
     points = _candidate_points_for(placed_pairs)
-    best = None
-    for p in points:
-        for rd in box_rotations(*box_dims):
-            if not fits_in_container(p, rd, container_dim):
-                continue
-            if any_overlap(p, rd, placed_pairs):
-                continue
-            if not is_supported(p, rd, placed_pairs):
-                continue
-            key = (p[2], p[1], p[0])
-            if best is None or key < best[0]:
-                best = (key, p, rd)
-    return (best[1], best[2]) if best else None
+    best = _best_placement(points, box_dims, placed_pairs, container_dim)
+    return (best[2], best[3]) if best else None
 
 
 def rescue_unplaced_via_swap(boxes, container_dim, base_placements, base_unplaced, max_pairs=3600):
@@ -484,11 +434,9 @@ def monobeam_packing(boxes, container_dim, beam_width=BEAM_WIDTH):
                         found_any = True
                         new_placed = state["placed"] + [{"pos": p, "dim": rd, "box_idx": idx}]
                         new_points = state["points"][:pi] + state["points"][pi + 1:]
+                        new_points = _new_extreme_points(p, rd, new_points)
                         x, y, z = p
                         dx, dy, dz = rd
-                        for cand_pt in [(x + dx, y, z), (x, y + dy, z), (x, y, z + dz)]:
-                            if cand_pt not in new_points:
-                                new_points = new_points + [cand_pt]
                         new_state = {
                             "placed": new_placed, "points": new_points,
                             "unplaced": state["unplaced"], "max_z": max(state["max_z"], z + dz),

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from pack_evaluation import box_volume, volume_to_business
+from pack_evaluation import box_volume, classify_comparison, volume_to_business
 from pack_feedback import log_feedback
 from pack_heuristics import extreme_point_packing, layer_based_packing, monobeam_packing
 from pack_presets import apply_preset, bounds, init_session_state_defaults, load_permalink_settings, randomize_seed, sync_query_params
@@ -22,6 +22,20 @@ from pack_ui_panel import render_packing_panel
 from pack_visualization import build_3d_figure
 
 st.set_page_config(page_title="3D-Packungsoptimierung – Sebastian Hanisch", layout="wide")
+
+
+@st.cache_data(show_spinner=False)
+def _run_heuristics(boxes, container_dim):
+    """Cacht alle drei Heuristiken über (boxes, container_dim) - ohne das
+    würden layer_based_packing/extreme_point_packing/monobeam_packing bei
+    JEDEM Rerun neu laufen, auch wenn ein völlig unbeteiligter Widget-Klick
+    (z. B. der Animations-Schritt-Slider eines anderen Tabs) den Rerun
+    ausgelöst hat."""
+    return (
+        layer_based_packing(boxes, container_dim),
+        extreme_point_packing(boxes, container_dim),
+        monobeam_packing(boxes, container_dim),
+    )
 
 st.title("📦 3D-Packungsoptimierung (Container-/Palettenstauung)")
 st.markdown(
@@ -82,7 +96,7 @@ with st.sidebar:
     n_boxes = st.slider("Anzahl Boxen", *bounds("n_boxes_slider"), key="n_boxes_slider")
     min_size = st.slider("Min. Kantenlänge (cm)", *bounds("min_size_slider"), key="min_size_slider")
     max_size = st.slider("Max. Kantenlänge (cm)", *bounds("max_size_slider"), key="max_size_slider")
-    seed = st.number_input("Zufalls-Seed", step=1, key="seed_input")
+    seed = st.number_input("Zufalls-Seed", *bounds("seed_input"), step=1, key="seed_input")
 
     st.markdown("**Geschäftliche Kennzahl**")
     cost_per_container = st.slider(
@@ -134,7 +148,13 @@ edited = st.data_editor(
         "hoehe": st.column_config.NumberColumn("Höhe (cm)", min_value=1.0, max_value=250.0, step=1.0),
     },
 )
+n_before_dropna = len(edited)
 edited = edited.dropna(subset=["laenge", "breite", "hoehe"]).reset_index(drop=True)
+if len(edited) < n_before_dropna:
+    st.caption(
+        f"ℹ️ {n_before_dropna - len(edited)} unvollständige Zeile(n) ignoriert, bis "
+        "Länge, Breite und Höhe ausgefüllt sind."
+    )
 if edited["id"].isna().any():
     edited["id"] = range(1, len(edited) + 1)
 st.session_state.boxes = edited
@@ -156,9 +176,9 @@ if total_box_volume > container_volume:
         f"Genau das macht den Unterschied zwischen den Heuristiken sichtbar."
     )
 
-layer_placements, layer_unplaced = layer_based_packing(boxes, container_dim)
-ep_placements, ep_unplaced = extreme_point_packing(boxes, container_dim)
-beam_placements, beam_unplaced = monobeam_packing(boxes, container_dim)
+(layer_placements, layer_unplaced), (ep_placements, ep_unplaced), (beam_placements, beam_unplaced) = _run_heuristics(
+    boxes, container_dim
+)
 
 METHODS = [
     ("layer", "Schichten-basiert", "📚 Schichten-basiert", "Baut die Ladung schichtweise auf, wie man intuitiv von Hand packen würde. Dient als Baseline für den Vergleich.", layer_placements, layer_unplaced),
@@ -190,22 +210,18 @@ with tabs[len(METHODS)]:
         })
     st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
 
-    best = max(candidates, key=lambda s: s["final_utilization_pct"])
-    worst = min(candidates, key=lambda s: s["final_utilization_pct"])
-    utilizations = [s["final_utilization_pct"] for s in candidates]
-    # Bug gefunden und behoben: max()/min() liefern bei einem echten Gleichstand
-    # (z. B. wenn ohnehin alle Boxen passen - dann ist "platziertes Volumen /
-    # Containervolumen" bei allen Methoden identisch, unabhängig von der
-    # tatsächlichen Packqualität) willkürlich den ERSTEN Kandidaten der Liste
-    # zurück. Das führte zu einer irreführenden "X ist besser"-Aussage bei
-    # tatsächlichem Gleichstand. Jetzt wird der Gleichstand explizit erkannt.
-    is_tied = (max(utilizations) - min(utilizations)) < 0.05
-    if is_tied:
+    comparison = classify_comparison(candidates)
+    ranked, best, worst = comparison["ranked"], comparison["best"], comparison["worst"]
+    all_tied, top_two_tied, is_tied = comparison["all_tied"], comparison["top_two_tied"], comparison["is_tied"]
+    if all_tied:
         st.markdown(
             "➡️ Alle Methoden erreichen hier praktisch dieselbe Raumnutzung – vermutlich passen "
             "bei dieser Instanz ohnehin alle Boxen hinein, wodurch sich Unterschiede in der "
             "Packqualität nicht in dieser Kennzahl widerspiegeln."
         )
+    elif top_two_tied:
+        tied_labels = " und ".join(s["label"] for s in ranked[:2])
+        st.markdown(f"➡️ **{tied_labels}** liegen hier praktisch gleichauf vorn.")
     else:
         st.markdown(f"➡️ **{best['label']}** erreicht hier die bessere Raumnutzung.")
 
@@ -282,14 +298,20 @@ else:
     fb_col1, fb_col2 = st.columns(2)
     with fb_col1:
         if st.button("👍 Ja", key="feedback_up_btn", use_container_width=True):
-            log_feedback("up")
-            st.session_state["feedback_given"] = "up"
+            if log_feedback("up"):
+                st.session_state["feedback_given"] = "up"
+            else:
+                st.session_state["feedback_save_failed"] = True
             st.rerun()
     with fb_col2:
         if st.button("👎 Nein", key="feedback_down_btn", use_container_width=True):
-            log_feedback("down")
-            st.session_state["feedback_given"] = "down"
+            if log_feedback("down"):
+                st.session_state["feedback_given"] = "down"
+            else:
+                st.session_state["feedback_save_failed"] = True
             st.rerun()
+    if st.session_state.get("feedback_save_failed"):
+        st.warning("⚠️ Feedback konnte leider nicht gespeichert werden. Bitte versuchen Sie es erneut.")
 
 st.caption(
     "Diese Demo ist Teil des Portfolios von Sebastian Hanisch – Operations Research "

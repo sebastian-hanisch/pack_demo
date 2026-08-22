@@ -228,11 +228,80 @@ def test_slider_bounds_match_setting_specs():
     assert checked >= 5
 
 
+def test_seed_input_bounds_match_setting_specs():
+    """Regressionstest für einen gefundenen Bug: anders als alle Slider hatte
+    das Zufalls-Seed-Feld keine min_value/max_value-Grenze, obwohl
+    SETTING_SPECS für seed_input lo=0 vorschreibt (nur die Permalink-Ladung
+    und die Preset-Buttons hielten sich bereits daran). Ein per Tippen oder
+    Minus-Stepper erreichbarer negativer Seed ließ np.random.default_rng()
+    mit ValueError abstürzen. Jetzt an dieselbe Wahrheitsquelle gebunden wie
+    die Slider."""
+    import pack_presets
+
+    at = fresh_app()
+    assert_ok(at)
+    seed_widget = at.sidebar.number_input(key="seed_input")
+    spec = pack_presets.SETTING_SPECS["seed_input"]
+    assert seed_widget.proto.min == pytest.approx(spec.lo)
+    assert seed_widget.proto.max == pytest.approx(spec.hi)
+
+
+def test_auto_play_does_not_replay_on_unrelated_rerun():
+    """Regressionstest für einen gefundenen Bug: render_packing_panel läuft
+    für alle drei Methoden-Tabs bei JEDEM Rerun (Streamlit-Tabs sind nicht
+    "lazy"), nicht nur für den gerade sichtbaren. Eine angehakte "Automatisch
+    abspielen"-Checkbox in einem Tab spielte deshalb die komplette
+    (blockierende, time.sleep-basierte) Animation bei JEDEM Rerun erneut ab -
+    auch wenn ein völlig anderer Tab/Widget den Rerun ausgelöst hat. Jetzt
+    spielt ein Ankreuzen genau einmal ab (Flag `{prefix}_auto_played`)."""
+    at = fresh_app()
+    layer_auto = [c for c in at.checkbox if c.key == "layer_auto"]
+    assert layer_auto, "Auto-Play-Checkbox nicht gefunden (zu wenige platzierte Boxen?)"
+    layer_auto[0].check().run(timeout=TIMEOUT)
+    assert_ok(at)
+    assert at.session_state["layer_auto_played"] is True
+
+    # Unbeteiligtes Widget in einem ANDEREN Tab betätigen - löst einen vollen
+    # Rerun aus, der render_packing_panel auch für den Layer-Tab erneut läuft.
+    extreme_step = [s for s in at.slider if s.key == "extreme_step"]
+    assert extreme_step
+    new_value = max(0, extreme_step[0].value - 1)
+    extreme_step[0].set_value(new_value).run(timeout=TIMEOUT)
+    assert_ok(at)
+    # Checkbox ist weiterhin angehakt, aber das "schon abgespielt"-Flag darf
+    # nicht zurückgesetzt worden sein - genau das verhindert das erneute,
+    # unsichtbar blockierende Abspielen.
+    assert at.session_state["layer_auto_played"] is True
+
+
+def test_feedback_save_failure_shows_warning_and_allows_retry(monkeypatch):
+    """Regressionstest für einen gefundenen Bug: log_feedback()'s
+    Rückgabewert wurde bisher verworfen - die App zeigte "Danke für Ihr
+    Feedback!" auch dann, wenn das Schreiben fehlgeschlagen war (z. B.
+    schreibgeschütztes Dateisystem, siehe pack_feedback.py-Docstring zu
+    Streamlit Community Cloud). Jetzt wird bei einem Fehlschlag eine Warnung
+    gezeigt statt einer Falschbestätigung, und ein erneuter Versuch bleibt
+    möglich."""
+    import pack_feedback
+
+    monkeypatch.setattr(pack_feedback, "log_feedback", lambda vote: False)
+
+    at = fresh_app()
+    up = [b for b in at.button if b.key == "feedback_up_btn"]
+    assert up
+    up[0].click().run(timeout=TIMEOUT)
+    assert_ok(at)
+    assert not any("Danke" in str(s.value) for s in at.success)
+    assert any("nicht gespeichert" in str(w.value) for w in at.warning)
+    retry = [b for b in at.button if b.key == "feedback_up_btn"]
+    assert retry, "Feedback-Button nach Fehlschlag verschwunden - keine Wiederholung möglich"
+
+
 # ==========================================================================
 # 2. Unit-Tests der reinen Funktionen
 # ==========================================================================
 
-from pack_evaluation import box_volume, estimate_extra_containers, evaluate_packing, volume_to_business
+from pack_evaluation import box_volume, classify_comparison, estimate_extra_containers, evaluate_packing, volume_to_business
 from pack_geometry import any_overlap, box_rotations, boxes_overlap, contact_area, fits_in_container, is_supported
 from pack_heuristics import extreme_point_packing, layer_based_packing, monobeam_packing, rescue_unplaced_via_swap
 from pack_visualization import _BOX_TRIANGLES_I, _BOX_TRIANGLES_J, _BOX_TRIANGLES_K
@@ -659,6 +728,43 @@ def test_volume_to_business_cost_scales_with_containers():
     containers, cost = volume_to_business(2_000_000.0, 1_000_000.0, cost_per_container=50.0)
     assert containers == 2
     assert cost == pytest.approx(100.0)
+
+
+def test_classify_comparison_detects_two_way_tie():
+    """Regressionstest für einen gefundenen Bug in der Vergleichs-Tab-Logik:
+    eine erste Fassung prüfte nur, ob ALLE Kandidaten innerhalb der Toleranz
+    liegen - lagen exakt die besten zwei von drei Methoden gleichauf, während
+    die dritte klar abwich, blieb "alle gleich" False, und max() erklärte
+    willkürlich die erste der beiden gleichauf liegenden Methoden zum
+    Sieger."""
+    candidates = [
+        {"label": "Extreme-Point", "final_utilization_pct": 50.256},
+        {"label": "Beam Search", "final_utilization_pct": 50.256},
+        {"label": "Schichten-basiert", "final_utilization_pct": 33.4},
+    ]
+    result = classify_comparison(candidates)
+    assert result["all_tied"] is False
+    assert result["top_two_tied"] is True
+    assert result["is_tied"] is True
+
+
+def test_classify_comparison_detects_all_tied():
+    candidates = [{"label": l, "final_utilization_pct": 80.0} for l in ["A", "B", "C"]]
+    result = classify_comparison(candidates)
+    assert result["all_tied"] is True
+    assert result["is_tied"] is True
+
+
+def test_classify_comparison_clear_winner_not_flagged_as_tied():
+    candidates = [
+        {"label": "A", "final_utilization_pct": 90.0},
+        {"label": "B", "final_utilization_pct": 70.0},
+        {"label": "C", "final_utilization_pct": 60.0},
+    ]
+    result = classify_comparison(candidates)
+    assert result["is_tied"] is False
+    assert result["best"]["label"] == "A"
+    assert result["worst"]["label"] == "C"
 
 
 def test_generate_pack_plan_pdf_produces_valid_pdf():

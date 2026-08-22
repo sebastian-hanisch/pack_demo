@@ -14,6 +14,5 @@ DEFAULT_CONTAINER_H = 100.0
 DEFAULT_COST_PER_CONTAINER = 50.0  # € - Handling-/Frachtkosten je zusätzlichem Container/Palette
 
 BEAM_WIDTH = 6
-BEAM_CANDIDATES_PER_STATE = 4
 
 FEEDBACK_FILE = "feedback_log.csv"
