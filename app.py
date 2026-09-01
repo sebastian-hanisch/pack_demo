@@ -4,8 +4,7 @@ Sebastian Hanisch - Operations Research und Machine Learning
 
 Bewusst schlanker gehalten als die Tourenplanung-Demo (drei Heuristiken statt
 fünf, kein externer Solver), aber mit denselben Komfortfunktionen für gutes
-Verständnis: Erklärung, Beispielszenarien, Animation, PDF-Export, Permalink,
-Feedback-Mechanismus.
+Verständnis: Erklärung, Beispielszenarien, Animation, PDF-Export, Permalink.
 
 Lauffähig mit: streamlit run app.py
 """
@@ -15,7 +14,6 @@ import pandas as pd
 import streamlit as st
 
 from pack_evaluation import box_volume, classify_comparison, volume_to_business
-from pack_feedback import log_feedback
 from pack_heuristics import extreme_point_packing, layer_based_packing, monobeam_packing
 from pack_presets import apply_preset, bounds, init_session_state_defaults, load_permalink_settings, randomize_seed, sync_query_params
 from pack_ui_panel import render_packing_panel
@@ -390,31 +388,8 @@ Programms oben, die bleibt für alle drei Heuristiken offen.
 
 st.markdown("---")
 
-st.markdown("#### War diese Demo hilfreich für Sie?")
-if st.session_state.get("feedback_given"):
-    vote_text = "👍 positiv" if st.session_state["feedback_given"] == "up" else "👎 negativ"
-    st.success(f"Danke für Ihr Feedback ({vote_text})! 🙏")
-else:
-    fb_col1, fb_col2 = st.columns(2)
-    with fb_col1:
-        if st.button("👍 Ja", key="feedback_up_btn", use_container_width=True):
-            if log_feedback("up"):
-                st.session_state["feedback_given"] = "up"
-            else:
-                st.session_state["feedback_save_failed"] = True
-            st.rerun()
-    with fb_col2:
-        if st.button("👎 Nein", key="feedback_down_btn", use_container_width=True):
-            if log_feedback("down"):
-                st.session_state["feedback_given"] = "down"
-            else:
-                st.session_state["feedback_save_failed"] = True
-            st.rerun()
-    if st.session_state.get("feedback_save_failed"):
-        st.warning("⚠️ Feedback konnte leider nicht gespeichert werden. Bitte versuchen Sie es erneut.")
-
 st.caption(
-    "Diese Demo ist Teil des Portfolios von Sebastian Hanisch – Operations Research "
-    "und Machine Learning. Interesse an einer maßgeschneiderten Lösung für Ihr "
-    "Unternehmen? [Kontakt aufnehmen](#)"
+    "Diese Demo ist Teil des Portfolios von [Sebastian Hanisch](https://sebastianhanisch.net) – "
+    "Operations Research und Machine Learning. Interesse an einer maßgeschneiderten Lösung für "
+    "Ihr Unternehmen? [Kontakt aufnehmen](https://sebastianhanisch.net/kontakt.html)"
 )

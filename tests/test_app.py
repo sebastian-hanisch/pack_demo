@@ -99,15 +99,6 @@ def test_pdf_download_buttons_present():
     assert all("PDF" in l for l in labels)
 
 
-def test_feedback_buttons_present_and_work():
-    at = fresh_app()
-    up = [b for b in at.button if b.key == "feedback_up_btn"]
-    assert up
-    up[0].click().run(timeout=TIMEOUT)
-    assert_ok(at)
-    assert any("Danke" in str(s.value) for s in at.success)
-
-
 def test_comparison_tab_has_all_three_methods():
     at = fresh_app()
     assert_ok(at)
@@ -272,29 +263,6 @@ def test_auto_play_does_not_replay_on_unrelated_rerun():
     # nicht zurückgesetzt worden sein - genau das verhindert das erneute,
     # unsichtbar blockierende Abspielen.
     assert at.session_state["layer_auto_played"] is True
-
-
-def test_feedback_save_failure_shows_warning_and_allows_retry(monkeypatch):
-    """Regressionstest für einen gefundenen Bug: log_feedback()'s
-    Rückgabewert wurde bisher verworfen - die App zeigte "Danke für Ihr
-    Feedback!" auch dann, wenn das Schreiben fehlgeschlagen war (z. B.
-    schreibgeschütztes Dateisystem, siehe pack_feedback.py-Docstring zu
-    Streamlit Community Cloud). Jetzt wird bei einem Fehlschlag eine Warnung
-    gezeigt statt einer Falschbestätigung, und ein erneuter Versuch bleibt
-    möglich."""
-    import pack_feedback
-
-    monkeypatch.setattr(pack_feedback, "log_feedback", lambda vote: False)
-
-    at = fresh_app()
-    up = [b for b in at.button if b.key == "feedback_up_btn"]
-    assert up
-    up[0].click().run(timeout=TIMEOUT)
-    assert_ok(at)
-    assert not any("Danke" in str(s.value) for s in at.success)
-    assert any("nicht gespeichert" in str(w.value) for w in at.warning)
-    retry = [b for b in at.button if b.key == "feedback_up_btn"]
-    assert retry, "Feedback-Button nach Fehlschlag verschwunden - keine Wiederholung möglich"
 
 
 # ==========================================================================
@@ -809,17 +777,6 @@ def test_intro_text_mentions_all_three_heuristics_by_name():
     assert "keine Rotation" in combined or "keine Rotation" in combined.lower(), (
         "Erklärungstext sollte explizit nennen, dass Schichten-basiert keine Rotation nutzt"
     )
-
-
-def test_feedback_log_and_count_roundtrip(tmp_path):
-    from pack_feedback import get_feedback_counts, log_feedback
-
-    log_file = str(tmp_path / "feedback_test.csv")
-    assert get_feedback_counts(log_file) == (0, 0)
-    assert log_feedback("up", log_file) is True
-    assert log_feedback("down", log_file) is True
-    assert log_feedback("up", log_file) is True
-    assert get_feedback_counts(log_file) == (2, 1)
 
 
 # --- rescue_unplaced_via_swap: Button-gesteuerte Verbesserungssuche ---
