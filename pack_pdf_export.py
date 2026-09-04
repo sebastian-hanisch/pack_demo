@@ -37,7 +37,7 @@ def generate_pack_plan_pdf(label, placements, boxes, ids, unplaced, container_di
     pdf.cell(0, 6, f"Platzierte Boxen: {stats['n_placed']} von {stats['n_placed']+stats['n_unplaced']}", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     if stats["n_unplaced"] > 0:
         pdf.cell(0, 6, f"Nicht platziert: {stats['n_unplaced']} Boxen ({stats['unplaced_volume']/1000:.1f} Liter)", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-        pdf.cell(0, 6, f"Geschaetzt zusaetzlich benoetigt: {extra_containers} Container (~{extra_cost:.0f} EUR)", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(0, 6, f"Geschätzt zusätzlich benötigt: {extra_containers} Container (~{extra_cost:.0f} EUR)", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(4)
 
     pdf.set_font("Helvetica", "B", 11)
