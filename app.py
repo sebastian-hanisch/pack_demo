@@ -51,25 +51,25 @@ st.caption("🎯 Schnellstart – ein Beispielszenario laden:")
 preset_col1, preset_col2, preset_col3, preset_col4 = st.columns(4)
 with preset_col1:
     st.button(
-        "📐 Gleichmäßige Kartons", use_container_width=True,
+        "📐 Gleichmäßige Kartons", width="stretch",
         on_click=apply_preset, args=(20, 25, 35, 120.0, 80.0, 100.0, 1),
         help="20 ähnlich große Kartons – hier landen Extreme-Point und Beam Search bei praktisch identischer Raumnutzung.",
     )
 with preset_col2:
     st.button(
-        "📦 Gemischte Ladung", use_container_width=True,
+        "📦 Gemischte Ladung", width="stretch",
         on_click=apply_preset, args=(30, 10, 60, 120.0, 80.0, 100.0, 7),
         help="30 stark unterschiedlich große Boxen – zeigt den Unterschied zwischen den Heuristiken deutlich.",
     )
 with preset_col3:
     st.button(
-        "🧩 Viele kleine Pakete", use_container_width=True,
+        "🧩 Viele kleine Pakete", width="stretch",
         on_click=apply_preset, args=(60, 8, 25, 70.0, 60.0, 50.0, 1),
         help="60 kleine Pakete bei knapper Kapazität (131% des Containervolumens) – echter Stresstest, bei dem nicht alle Pakete hineinpassen und die Packqualität wirklich zählt.",
     )
 with preset_col4:
     st.button(
-        "📡 Enges Puzzle", use_container_width=True,
+        "📡 Enges Puzzle", width="stretch",
         on_click=apply_preset, args=(30, 8, 70, 120.0, 80.0, 100.0, 10),
         help="30 stark gemischte Boxen bei knapper Kapazität – hier liegt Beam Search deutlich vor Extreme-Point, und größere Beam-Breite hilft hier sogar sichtbar weiter (empirisch gefunden, kein Zufall).",
     )
@@ -103,7 +103,7 @@ with st.sidebar:
     )
 
     st.button(
-        "🎲 Neue Boxen generieren", use_container_width=True, on_click=randomize_seed,
+        "🎲 Neue Boxen generieren", width="stretch", on_click=randomize_seed,
         help="Würfelt einen neuen Zufalls-Seed und erzeugt damit komplett neue Boxen - "
         "praktisch, ohne selbst eine neue Seed-Zahl eintippen zu müssen.",
     )
@@ -138,7 +138,7 @@ st.subheader("📋 Boxen (direkt editierbar)")
 edited = st.data_editor(
     st.session_state.boxes,
     num_rows="dynamic",
-    use_container_width=True,
+    width="stretch",
     column_config={
         "id": st.column_config.NumberColumn("ID", disabled=True),
         "laenge": st.column_config.NumberColumn("Länge (cm)", min_value=1.0, max_value=250.0, step=1.0),
@@ -206,7 +206,7 @@ with tabs[len(METHODS)]:
             "Zusatzcontainer nötig": extra_containers,
             "Geschätzte Zusatzkosten": f"{extra_cost:.0f} €",
         })
-    st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(comp_rows), width="stretch", hide_index=True)
 
     comparison = classify_comparison(candidates)
     ranked, best, worst = comparison["ranked"], comparison["best"], comparison["worst"]
@@ -241,7 +241,7 @@ with tabs[len(METHODS)]:
         with col:
             st.caption(f"{s['label']} (final, {s['final_utilization_pct']:.1f}%)")
             fig_c = build_3d_figure(s["placements"], boxes, ids, container_dim)
-            st.plotly_chart(fig_c, use_container_width=True, key=f"compare_{s['label']}")
+            st.plotly_chart(fig_c, width="stretch", key=f"compare_{s['label']}")
 
 
 with st.expander("Wie funktioniert diese Demo?"):

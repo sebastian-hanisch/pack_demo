@@ -107,7 +107,7 @@ def render_packing_panel(prefix, label, placements, unplaced, boxes, ids, contai
 
     fig = build_3d_figure(subset, boxes, ids, container_dim)
     plot_slot = st.empty()
-    plot_slot.plotly_chart(fig, use_container_width=True, key=f"{prefix}_plot_{step}")
+    plot_slot.plotly_chart(fig, width="stretch", key=f"{prefix}_plot_{step}")
 
     # Bug gefunden und behoben: app.py rendert alle drei Methoden-Tabs bei
     # JEDEM Rerun (Streamlit-Tabs sind nicht "lazy"), nicht nur den gerade
@@ -120,7 +120,7 @@ def render_packing_panel(prefix, label, placements, unplaced, boxes, ids, contai
     if auto_play and not st.session_state.get(f"{prefix}_auto_played"):
         for s in range(n_placed + 1):
             f = build_3d_figure(placements[:s], boxes, ids, container_dim)
-            plot_slot.plotly_chart(f, use_container_width=True, key=f"{prefix}_auto_{s}")
+            plot_slot.plotly_chart(f, width="stretch", key=f"{prefix}_auto_{s}")
             time.sleep(0.15)
         st.session_state[f"{prefix}_auto_played"] = True
     elif not auto_play:
