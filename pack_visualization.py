@@ -18,8 +18,8 @@ from pack_constants import BOX_COLORS
 # nach AUSSEN zeigende Normalen (rechte-Hand-Regel bei der gewählten
 # Eckpunkt-Reihenfolge) - auf Nutzerhinweis ("Sichtbarkeit aus
 # verschiedenen Perspektiven") gefunden: die ursprüngliche Reihenfolge
-# hatte bei 4 von 6 Flächen (unten, hinten, links) nach INNEN zeigende
-# Normalen, nur 2 von 6 (oben, vorne, rechts eigentlich 3 von 6) waren
+# hatte bei 3 von 6 Flächen (unten, hinten, links; 6 von 12 Dreiecken) nach
+# INNEN zeigende Normalen, die anderen 3 von 6 (oben, vorne, rechts) waren
 # korrekt - je nach Blickwinkel und Beleuchtung/Rendering-Verhalten von
 # Plotly konnte das zu unsichtbaren oder falsch schattierten Flächen
 # führen. Siehe README für die Herleitung.

@@ -610,7 +610,7 @@ def test_box_mesh_triangles_cover_all_six_faces_exactly():
 def test_box_mesh_triangles_have_consistent_outward_normals():
     """Regressionstest für einen vom Nutzer gemeldeten Fehler: die
     Dreiecks-Reihenfolge deckte zwar alle 6 Flächen korrekt ab (siehe
-    test_box_mesh_triangles_cover_all_six_faces_exactly), aber 4 von 6
+    test_box_mesh_triangles_cover_all_six_faces_exactly), aber 3 von 6
     Flächen (unten, hinten, links) hatten eine nach INNEN statt nach AUSSEN
     zeigende Normale (falsche Wicklungsreihenfolge / Eckpunkt-Richtung).
     Das flächen-basierte Coverage-Kriterium allein prüft nur unsignierte
