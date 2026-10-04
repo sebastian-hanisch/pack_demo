@@ -41,9 +41,20 @@ def render_packing_panel(prefix, label, placements, unplaced, boxes, ids, contai
     )
     rescue_state_key = f"{prefix}_rescue_result"
 
-    if unplaced:
+    # Für Button-Label/Sichtbarkeit zaehlt der Stand NACH einem evtl. bereits
+    # zwischengespeicherten Rescue, nicht die rohe Ausgangszahl - sonst zeigt
+    # der Button bei jedem folgenden Rerun (z.B. Tab-Wechsel) weiterhin die
+    # urspruengliche, laengst ueberholte Anzahl unplatzierter Boxen an.
+    rescue_result = st.session_state.get(rescue_state_key)
+    effective_unplaced = (
+        rescue_result["unplaced"]
+        if rescue_result is not None and rescue_result["key"] == current_key
+        else unplaced
+    )
+
+    if effective_unplaced:
         rescue_clicked = st.button(
-            f"🔧 {len(unplaced)} unplatzierte Boxen nachträglich retten (Greedy-Verbesserungssuche)",
+            f"🔧 {len(effective_unplaced)} unplatzierte Boxen nachträglich retten (Greedy-Verbesserungssuche)",
             key=f"{prefix}_rescue_btn",
             help="Sucht gezielt nach Umplatzierungen bereits eingeräumter Boxen, um zusätzliche, bisher unplatzierte Boxen doch noch unterzubringen. Kann einige Sekunden dauern.",
         )
@@ -58,8 +69,9 @@ def render_packing_panel(prefix, label, placements, unplaced, boxes, ids, contai
                 "placements": rescued_placements, "unplaced": rescued_unplaced,
                 "n_rescued": n_rescued, "key": current_key, "elapsed": elapsed,
             }
+            rescue_result = st.session_state[rescue_state_key]
 
-        rescue_result = st.session_state.get(rescue_state_key)
+    if unplaced:
         if rescue_result is not None and rescue_result["key"] == current_key:
             if rescue_result["n_rescued"] > 0:
                 st.success(

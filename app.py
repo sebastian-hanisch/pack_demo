@@ -313,7 +313,7 @@ gefundener Bug" im README - bei maximalem platziertem Volumen:
         r"""
 Als binäres Programm mit Auswahlvariablen $s_i \in \{0,1\}$ (= 1, wenn Box $i$ platziert
 wird), Rotationsvariablen $\rho_{ik} \in \{0,1\}$ für $k \in R(i)$ (= 1, wenn Box $i$ in
-Rotation $k$ platziert wird) und, für je zwei Boxen $i \neq j$, sechs binären
+Rotation $k$ platziert wird) und, für jedes ungeordnete Boxenpaar $i<j$, sechs binären
 Trennrichtungs-Variablen $\sigma_{ij}^{+x}, \sigma_{ij}^{-x}, \sigma_{ij}^{+y},
 \sigma_{ij}^{-y}, \sigma_{ij}^{+z}, \sigma_{ij}^{-z}$ (= 1, wenn $i$ auf der jeweiligen
 Achse vollständig auf einer Seite von $j$ liegt) - die gebräuchliche disjunktive Form für
@@ -322,7 +322,7 @@ Packungs-MILPs, linearisiert über eine hinreichend große Konstante $M$ (Chen, 
 """
     )
     st.latex(
-        r"\max \; \sum_{i=1}^{n} s_i \sum_{k \in R(i)} \rho_{ik}\, l_i^k w_i^k h_i^k "
+        r"\max \; \sum_{i=1}^{n} s_i\, l_i w_i h_i "
         r"\qquad \text{u. d. N.} \quad \sum_{k \in R(i)} \rho_{ik} = s_i \;\; \forall i"
     )
     st.latex(
@@ -331,14 +331,19 @@ Packungs-MILPs, linearisiert über eine hinreichend große Konstante $M$ (Chen, 
     )
     st.latex(
         r"\sigma_{ij}^{+x}+\sigma_{ij}^{-x}+\sigma_{ij}^{+y}+\sigma_{ij}^{-y}"
-        r"+\sigma_{ij}^{+z}+\sigma_{ij}^{-z} \;\geq\; s_i+s_j-1 \qquad \forall i \neq j"
+        r"+\sigma_{ij}^{+z}+\sigma_{ij}^{-z} \;\geq\; s_i+s_j-1 \qquad \forall i < j"
     )
     st.latex(
-        r"x_i + l_i \leq x_j + M(1-\sigma_{ij}^{+x}) \qquad \text{(analog für die "
-        r"übrigen fünf Trennrichtungen)}"
+        r"x_i + \sum_{k \in R(i)} \rho_{ik}\, l_i^k \leq x_j + M(1-\sigma_{ij}^{+x}) \qquad "
+        r"\text{(analog für die übrigen fünf Trennrichtungen, jeweils mit den rotierten Kantenlängen)}"
     )
     st.markdown(
         r"""
+Das Volumen einer Box ist rotationsinvariant ($l_i^k w_i^k h_i^k = l_i w_i h_i$), deshalb
+hängt die Zielfunktion nur von den Auswahlvariablen $s_i$ ab und ist linear. Die Trennrichtungen
+gibt es nur einmal je ungeordnetem Paar $i<j$ (sechs Variablen - links/rechts, vorne/hinten,
+unter/über -, wie bei Chen et al.).
+
 Die Stützungs-Nebenbedingung (keine schwebenden Boxen) ist oben bewusst NICHT
 mitlinearisiert - sie ist keine Standard-Nebenbedingung der klassischen
 Container-Loading-Literatur, sondern eine physikalische Realitäts-Ergänzung dieser Demo

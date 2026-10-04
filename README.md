@@ -142,7 +142,7 @@ Breite = minimal besser, aber im Worst Case langsamer).
 
 ### Ein Szenario, in dem die alte Beam Search deutlich vorne lag
 
-Auf Wunsch systematisch gesucht: über 4 Boxanzahlen (25/35/45), 4 Größenbereiche
+Auf Wunsch systematisch gesucht: über 3 Boxanzahlen (25/35/45), 4 Größenbereiche
 (8-70 cm) und je bis zu 15 Seeds (~180 Konfigurationen), gefiltert auf "eng, aber nicht
 hoffnungslos" (Gesamtvolumen der Boxen 90-250% des Containervolumens). Bestes Ergebnis
 mit der alten Implementierung: 25 Boxen, 15-55 cm Kantenlänge, Seed 3 - Schichten-
@@ -389,18 +389,20 @@ Achsenbereich in allen drei Dimensionen, keine Verzerrung mehr.
 
 Auf Nachfrage präzisiert: eigentlich ging es um die Sichtbarkeit der Packstücke selbst
 aus verschiedenen Blickwinkeln, nicht die Container-Skalierung. Systematisch per
-Kreuzprodukt geprüft: **4 von 6 Seitenflächen** jedes Box-Meshs (unten, hinten, links)
-hatten eine nach INNEN statt nach AUSSEN zeigende Normale - nur 2 von 6 (oben, vorne)
-plus rechts (3 von 6 insgesamt) waren korrekt orientiert. Ursache: die
-Dreiecks-Eckpunktreihenfolge (`_BOX_TRIANGLES_I/J/K`) folgte für diese vier Flächen
-nicht der rechte-Hand-Regel für nach außen zeigende Normalen.
+Kreuzprodukt geprüft: **3 von 6 Seitenflächen** jedes Box-Meshs (unten, hinten, links)
+hatten eine nach INNEN statt nach AUSSEN zeigende Normale - die anderen 3 von 6 (oben,
+vorne, rechts) waren korrekt orientiert (6 von 12 Dreiecken betroffen; am Fix-Commit
+nachgerechnet). Ursache: die Dreiecks-Eckpunktreihenfolge (`_BOX_TRIANGLES_I/J/K`)
+folgte für diese drei Flächen nicht der rechte-Hand-Regel für nach außen zeigende
+Normalen.
 
 **Warum das die Sichtbarkeit beeinträchtigte:** Mit `flatshading=True` hängt Plotlys
 Beleuchtungsberechnung direkt von der Normalenrichtung jeder Fläche ab - bei
 uneinheitlich orientierten Normalen können Flächen je nach Blickwinkel und
 Lichteinfall unsichtbar wirken oder falsch (zu dunkel/zu hell) schattiert erscheinen.
-Da 4 von 6 Flächen betroffen waren, hätte praktisch jede Kamera-Perspektive
-mindestens eine falsch wirkende Fläche gezeigt - passend zum gemeldeten Eindruck einer
+Die drei betroffenen Flächen treffen sich an einer Ecke; deshalb hätte jede
+Kamera-Perspektive außer der Ansicht auf die gegenüberliegende Ecke (7 von 8
+Blickrichtungs-Oktanten) mindestens eine falsch wirkende Fläche gezeigt - passend zum gemeldeten Eindruck einer
 "merkwürdigen" Darstellung, die sich beim Rotieren der Ansicht nicht auflöste.
 
 **Wichtig - ein bereits bestehender Test (`test_box_mesh_triangles_cover_all_six_faces_exactly`)
@@ -413,7 +415,7 @@ prüft - ein Beispiel dafür, dass geometrische Korrektheit mehrere unabhängige
 Eigenschaften hat (hier: Flächendeckung UND Orientierung), die jeweils eigene Tests
 brauchen.
 
-**Fix:** die Eckpunktreihenfolge der 4 betroffenen Flächen (8 der 12 Dreiecke) so
+**Fix:** die Eckpunktreihenfolge der 3 betroffenen Flächen (6 der 12 Dreiecke) so
 vertauscht, dass alle 12 Dreiecke jetzt konsistent nach außen zeigen. Die abgedeckte
 Fläche je Seite bleibt dabei unverändert (nur die Wicklungsrichtung ändert sich, nicht
 die Position der Dreiecke) - verifiziert durch Neuberechnung der Flächensumme je Seite
@@ -730,7 +732,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-95 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+98 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)
