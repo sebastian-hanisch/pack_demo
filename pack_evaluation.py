@@ -36,7 +36,10 @@ def estimate_extra_containers(unplaced_volume, container_volume):
     if container_volume <= 0 or unplaced_volume <= 0:
         return 0
     import math
-    return math.ceil(unplaced_volume / container_volume)
+    # Toleranz gegen Gleitkommarauschen: ein exakt ganzzahliges Verhältnis
+    # (z. B. 3 Container-große Boxen, anders gedreht multipliziert) darf nicht
+    # durch 3,0000000000000004 auf 4 aufgerundet werden.
+    return max(1, math.ceil(unplaced_volume / container_volume - 1e-9))
 
 
 def volume_to_business(unplaced_volume, container_volume, cost_per_container=DEFAULT_COST_PER_CONTAINER):

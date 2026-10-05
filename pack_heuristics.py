@@ -290,6 +290,16 @@ def rescue_unplaced_via_swap(boxes, container_dim, base_placements, base_unplace
                     continue
                 pos_p, rd_p = result_p
 
+                # Entfernen von P darf keine Box in der Luft zurücklassen, die auf
+                # P stand: Zustand nach der Verschiebung auf Stützung prüfen
+                # (Orakel-Fund: ohne diese Prüfung schwebten Boxen nach der Rettung).
+                new_pairs = trial_pairs + [(pos_p, rd_p)]
+                if not all(
+                    is_supported(pos, dim, new_pairs[:k] + new_pairs[k + 1:])
+                    for k, (pos, dim) in enumerate(new_pairs)
+                ):
+                    continue
+
                 placements = [pp for pp in placements if pp["box_idx"] != p_idx]
                 placements.append({"pos": pos_u, "dim": rd_u, "box_idx": u_idx})
                 placements.append({"pos": pos_p, "dim": rd_p, "box_idx": p_idx})

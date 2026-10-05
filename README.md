@@ -312,7 +312,7 @@ Gelingt beides, werden beide Boxen übernommen - netto eine Box mehr platziert, 
 nie schlechter als der Ausgangszustand.
 
 **Beim Szenario "Viele kleine Pakete":** 1 zusätzliche Box gerettet, Raumnutzung von
-70,9 % auf 72,7 % gestiegen. **Beim (aktuellen) Szenario "Enges Puzzle":** ebenfalls 1
+70,9 % auf 72,7 % gestiegen. **Beim früheren Szenario "Enges Puzzle" (25 Boxen, Seed 11; beim aktuellen Preset mit 30 Boxen, Seed 10 rettet die Suche keine Box):** ebenfalls 1
 zusätzliche Box gerettet, 71,8 % auf 73,0 % gestiegen. *(Werte nach Einbau der
 Stützungsprüfung - siehe eigener Abschnitt weiter unten - deutlich kleiner als zuvor
 gemessen: vorher konnte Extreme-Point unphysikalisch "schwebende" Platzierungen
@@ -715,6 +715,15 @@ Klicks keinerlei Probleme auf - ein Artefakt der Testmethodik, keine echte
 Anwendungsschwäche.
 `test_regenerate_button` (verstärkt).
 
+## Orakel-Prüfung (unabhängiger Rechenweg)
+
+Ein Voxel-Prüfer (Belegungsraster in Zehntel-Zentimetern) und eine Vollaufzählung auf Mini-Instanzen prüfen die Demo
+(`tests/test_oracle_pack.py`): Überlappung, Containergrenzen, Stützung und Kontaktfläche stimmen mit dem Raster überein, alle drei
+Heuristiken liefern zulässige Packungen und liegen nie über dem Optimum der Aufzählung. Dabei fanden sich zwei Fehler, beide
+behoben: Die Greedy-Verbesserungssuche konnte Boxen in der Luft zurücklassen, wenn die entfernte Box eine andere Box trug (jetzt wird
+der Zustand nach jeder Verschiebung auf Stützung geprüft), und die Zusatzcontainer-Schätzung rundete ein exakt ganzzahliges
+Volumenverhältnis durch Gleitkommarauschen auf (3,0000000000000004 ergab 4 statt 3). Die Preset-Zahlen blieben unverändert.
+
 ## 1. Lokal ausführen
 
 ```bash
@@ -732,7 +741,7 @@ pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
-98 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
+104 Tests, laufen automatisch bei jedem Push/PR über GitHub Actions
 (`.github/workflows/tests.yml`).
 
 ## 3. Kostenlos online stellen (Streamlit Community Cloud)
